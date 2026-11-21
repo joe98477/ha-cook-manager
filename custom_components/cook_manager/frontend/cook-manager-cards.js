@@ -2,6 +2,7 @@
  *
  *   type: custom:cook-manager-cook-card      slot: 1
  *   type: custom:cook-manager-ikamand-card
+ *   type: custom:cook-manager-summary-card   navigation_path: /lovelace/bbq
  *
  * Served by the integration itself; nothing to install. The cards find their entities through
  * the device they belong to, so renamed entity ids keep working.
@@ -186,6 +187,24 @@ const STYLE = `
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; background: var(--cm-soft); }
   .empty { color: var(--secondary-text-color); padding: 8px 0; }
+
+  ha-card.summary { padding: 6px 14px; cursor: pointer; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+  .row + .row { border-top: 1px solid var(--cm-line); }
+  .row .dial { width: 46px; margin: 0; flex: none; }
+  .row .dial svg g { stroke-width: 20px; }
+  .row .dial-inner ha-icon { --mdc-icon-size: 18px; color: var(--cm-heat-1); }
+  .row .dial.rest ha-icon { color: var(--cm-cool); }
+  .row .dial.done ha-icon { color: var(--cm-ok); }
+  .row .dial.off ha-icon { color: var(--secondary-text-color); }
+  .row .mid { flex: 1; min-width: 0; }
+  .row .name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .what { font-size: 12.5px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .what.bad { color: var(--error-color); }
+  .row .what.good { color: var(--cm-ok); }
+  .row .temp { text-align: right; flex: none; }
+  .row .temp .t { font-size: 24px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .row .temp .of { font-size: 12px; color: var(--secondary-text-color); }
 `;
 
 class CookManagerBase extends HTMLElement {
@@ -459,7 +478,7 @@ class CookManagerCookCard extends CookManagerBase {
         <div class="stat${grillWarn ? " warn" : ""}"><div class="l">Grill</div><div class="v">${deg(grill)}</div>
           <div class="s">${grillTarget !== null ? `target ${deg(grillTarget)}` : "no target"}${grillWarn ? ` · ${a.grill_state}` : ""}</div></div>
         <div class="stat"><div class="l">${timeLabel}</div><div class="v">${state === "done" ? "0 min" : duration(remaining)}</div>
-          <div class="s">${finish && remaining !== null ? `about ${clock(finish)}` : a.stalled ? "stalled" : state === "done" ? "finished" : "working it out"}</div></div>
+          <div class="s">${clock(finish) && remaining !== null ? `about ${clock(finish)}` : a.stalled ? "stalled" : state === "done" ? "finished" : "working it out"}</div></div>
         <div class="stat"><div class="l">Rate</div><div class="v">${a.rate_per_hour !== null && a.rate_per_hour !== undefined ? `${a.rate_per_hour > 0 ? "+" : ""}${Math.round(a.rate_per_hour)}°` : "--"}</div>
           <div class="s">per hour</div></div>
       </div>`;
@@ -569,11 +588,97 @@ class CookManagerIkamandCard extends CookManagerBase {
   }
 }
 
+class CookManagerSummaryCard extends CookManagerBase {
+  static getStubConfig() {
+    return { show_idle: true };
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._signature = null;
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _slots() {
+    const slots = [];
+    for (let n = 1; n <= 8; n += 1) {
+      const ids = deviceEntities(this._hass, (id) => id.endsWith(`_slot${n}`), SLOT_DEFAULTS(n));
+      const status = this._state(ids.status);
+      if (status && ["cooking", "resting", "done"].includes(status.state)) slots.push({ n, ids, status });
+    }
+    return slots;
+  }
+
+  _collect() {
+    this._active = this._slots();
+    return JSON.stringify(
+      this._active.map((slot) => [
+        slot.n,
+        slot.status.state,
+        slot.status.attributes,
+        ...["temperature", "time_remaining", "finish_time", "progress"].map((key) => this._state(slot.ids[key])?.state),
+      ])
+    );
+  }
+
+  _update(force) {
+    super._update(force);
+    const card = this.shadowRoot.querySelector("ha-card");
+    if (card) card.classList.add("summary");
+    this.style.display = this._active && !this._active.length && !this._config.show_idle ? "none" : "";
+  }
+
+  _onClick() {
+    const path = this._config.navigation_path;
+    if (!path) return;
+    window.history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+  }
+
+  _render() {
+    if (!this._active.length) {
+      return `<div class="row">${dial(0, '<ha-icon icon="mdi:grill"></ha-icon>', "off")}
+        <div class="mid"><div class="name">BBQ</div><div class="what">Nothing cooking${this._config.navigation_path ? " · tap to start a cook" : ""}</div></div></div>`;
+    }
+    return this._active
+      .map(({ n, ids, status }) => {
+        const a = status.attributes;
+        const state = status.state;
+        const meat = num(this._state(ids.temperature)?.state);
+        const remaining = num(this._state(ids.time_remaining)?.state);
+        const finish = this._state(ids.finish_time)?.state;
+        const progress = num(this._state(ids.progress)?.state);
+        const pull = num(a.pull_temperature);
+        let what = "Cooking";
+        let tone = "";
+        if (state === "done") [what, tone] = ["Ready", "good"];
+        else if (a.probe_lost) [what, tone] = ["No reading from the probe", "bad"];
+        else if (state === "resting") what = remaining !== null ? `Resting · ${duration(remaining)} left` : "Resting";
+        else if (a.stalled) what = "In the stall";
+        else if (remaining !== null) what = `${duration(remaining)} left${clock(finish) ? ` · about ${clock(finish)}` : ""}`;
+        else what = "Cooking · working out the time";
+        if (!tone && ["low", "high"].includes(a.grill_state)) [what, tone] = [`Grill ${a.grill_state} · ${what}`, "bad"];
+        const icon = state === "done" ? "mdi:check" : state === "resting" ? "mdi:timer-sand" : "mdi:grill";
+        return `<div class="row">
+          ${dial(state === "cooking" ? (progress ?? 0) / 100 : 1, `<ha-icon icon="${icon}"></ha-icon>`, state === "cooking" ? "" : state === "resting" ? "rest" : "done")}
+          <div class="mid"><div class="name">${esc(a.cook_name || `Cook ${n}`)}</div><div class="what ${tone}">${esc(what)}</div></div>
+          <div class="temp"><div class="t">${deg(meat)}</div>${state === "cooking" && pull !== null ? `<div class="of">of ${deg(pull)}</div>` : ""}</div>
+        </div>`;
+      })
+      .join("");
+  }
+}
+
 if (!customElements.get("cook-manager-cook-card")) customElements.define("cook-manager-cook-card", CookManagerCookCard);
 if (!customElements.get("cook-manager-ikamand-card")) customElements.define("cook-manager-ikamand-card", CookManagerIkamandCard);
+if (!customElements.get("cook-manager-summary-card")) customElements.define("cook-manager-summary-card", CookManagerSummaryCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
   { type: "cook-manager-cook-card", name: "Cook Manager: cook", description: "Set up and follow one cook slot." },
-  { type: "cook-manager-ikamand-card", name: "Cook Manager: iKamand", description: "Pit temperature, fan and Fire it up." }
+  { type: "cook-manager-ikamand-card", name: "Cook Manager: iKamand", description: "Pit temperature, fan and Fire it up." },
+  { type: "cook-manager-summary-card", name: "Cook Manager: summary", description: "One line for each running cook." }
 );

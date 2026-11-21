@@ -94,6 +94,16 @@ type: custom:cook-manager-ikamand-card
 The iKamand: pit temperature dial, fan output, food probes, pit target, hold or turn off, and
 Fire it up. With more than one iKamand add `host: 192.168.1.50`.
 
+```yaml
+type: custom:cook-manager-summary-card
+navigation_path: /lovelace/bbq
+show_idle: false
+```
+
+A small card for a home page: one line for each running cook with its temperature, pull
+temperature, time left and a ring that fills as it cooks. Tapping it opens `navigation_path`.
+With `show_idle: false` it takes no space while nothing is cooking.
+
 ## iKamand
 
 Enter the iKamand's IP address in the setup options and Cook Manager talks to it directly over
