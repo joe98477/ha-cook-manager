@@ -103,7 +103,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             await manager.async_set_grill_target(slot, data[ATTR_GRILL_TARGET])
         if ATTR_WEIGHT in data:
             manager.set_weight(slot, data[ATTR_WEIGHT])
-        await manager.async_start(slot)
+        await manager.async_start(slot, call.context.user_id)
 
     async def stop_cook(call: ServiceCall) -> None:
         manager = _manager(hass)

@@ -11,6 +11,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
 from .const import (
+    ALERT_GROUPS,
+    CONF_ALERTS,
+    CONF_NOTIFY_URL,
+    DEFAULT_ALERTS,
     CONF_CONTROLLERS,
     CONF_GRILL_TOLERANCE,
     CONF_IGNORED,
@@ -62,6 +66,15 @@ def _schema(hass: HomeAssistant, current: dict[str, Any]) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(CONF_ALERTS, default=current.get(CONF_ALERTS, DEFAULT_ALERTS)): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(ALERT_GROUPS),
+                    multiple=True,
+                    translation_key=CONF_ALERTS,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            vol.Optional(CONF_NOTIFY_URL, default=current.get(CONF_NOTIFY_URL, "")): selector.TextSelector(),
             vol.Optional(CONF_IGNORED, default=current.get(CONF_IGNORED, DEFAULT_IGNORED)): selector.TextSelector(),
             vol.Required(
                 CONF_PRE_ALERT, default=current.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT)
@@ -88,6 +101,8 @@ def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
     data.setdefault(CONF_CONTROLLERS, [])
     data.setdefault(CONF_NOTIFY, [])
     data.setdefault(CONF_IGNORED, "")
+    data.setdefault(CONF_ALERTS, [])
+    data[CONF_NOTIFY_URL] = (data.get(CONF_NOTIFY_URL) or "").strip()
     data[CONF_IKAMAND] = (data.get(CONF_IKAMAND) or "").strip()
     return data
 

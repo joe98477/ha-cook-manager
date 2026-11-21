@@ -9,7 +9,7 @@ that is a temperature sensor), so probes from different brands can be mixed in o
 device it talks to itself: the Kamado Joe iKamand, whose cloud service has been shut down
 (see [iKamand](#ikamand)).
 
-**Status: early (0.3.0).** Tested against Home Assistant 2026.10.
+**Status: early (0.4.0).** Tested against Home Assistant 2026.10.
 
 ## What it does
 
@@ -23,7 +23,8 @@ device it talks to itself: the Kamado Joe iKamand, whose cloud service has been 
   towards the grill temperature; without one the recent rise is extrapolated. During a
   low-and-slow stall no estimate is shown.
 - **Alerts.** Approaching target, target reached, stage changes, rest finished, grill above or
-  below its band, probe lost, stall.
+  below its band, probe lost, stall. Sent to whoever started the cook (see
+  [Notifications](#notifications)).
 - **Grill controller (optional).** A built-in iKamand, or a climate entity from another
   integration, is handed the grill target at each stage. The controller keeps doing its own
   regulation; Cook Manager only sets the target.
@@ -46,7 +47,9 @@ and restart.
 | Probes | Temperature sensors to offer as probes. A climate entity is read through its current temperature. |
 | Grill controllers | Climate entities from other integrations that may be handed the grill target. |
 | iKamand address | IP address of an iKamand for Cook Manager to talk to directly. Optional. |
-| Notify | Notify services that receive alerts. |
+| Notify (everyone) | Notify services for cooks set to notify everyone, and the fallback list. |
+| Alerts to send | Which alerts are sent as notifications. |
+| Page a notification opens | Dashboard path opened when a phone notification is tapped. |
 | Readings that mean no probe | Values a probe reports with nothing plugged in, for example `-1`. |
 | Approaching alert | Degrees before a meat target at which to alert. |
 | Grill band | How far the grill may sit from its target before an alert. |
@@ -64,6 +67,7 @@ For each slot (`Cook 1`, `Cook 2`, …):
 | `binary_sensor.cook_1_attention` | On when done, the probe is lost or the grill is out of its band. |
 | `select.cook_1_probe`, `select.cook_1_grill_probe`, `select.cook_1_grill_controller` | What the slot uses. |
 | `select.cook_1_recipe`, `select.cook_1_doneness` | Recipe and doneness; choosing them fills in the targets. |
+| `select.cook_1_notify` | Who gets this cook's alerts. |
 | `number.cook_1_target`, `number.cook_1_grill_target` | Targets; can be changed during a cook. |
 | `number.cook_1_weight` | Weight of the meat, optional; stored with the cook record. |
 | `text.cook_1_name` | Name used in alerts. |
@@ -71,6 +75,28 @@ For each slot (`Cook 1`, `Cook 2`, …):
 
 Shared: `binary_sensor.cook_manager_cooking` (any cook running),
 `sensor.cook_manager_active_cooks`, `sensor.cook_manager_probes_online`.
+
+## Notifications
+
+Each cook slot has a **Notify** choice:
+
+- **Whoever starts the cook** (the default). The alerts go to the phones of the person who pressed
+  Start. Cook Manager finds them through the Home Assistant person linked to that user and the
+  phones (Home Assistant app) listed as that person's device trackers.
+- **Everyone.** The notify services chosen in the setup options.
+- **A named person.** Their phones only.
+
+If the person has no phone that can be found, or the cook was started by an automation, the
+"everyone" list is used.
+
+On phones with the Home Assistant app each cook has one notification that updates in place and is
+removed when the cook is stopped. "Target reached", "done" and "probe lost" are sent as
+time-sensitive on iOS and on their own high-importance channel ("Cook alerts") on Android; whether
+they sound through Do Not Disturb is set on the phone, per channel. Other notify services get a
+plain title and message.
+
+Which alerts are sent is chosen under **Alerts to send**. "Stall detected" and "grill back in its
+band" are off by default. Every alert still fires as an event either way.
 
 ## Dashboard cards
 

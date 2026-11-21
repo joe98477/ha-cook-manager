@@ -25,6 +25,27 @@ CONF_IGNORED = "ignored_readings"
 CONF_PRE_ALERT = "pre_alert"
 CONF_GRILL_TOLERANCE = "grill_tolerance"
 CONF_IKAMAND = "ikamand_hosts"
+CONF_ALERTS = "alerts"
+CONF_NOTIFY_URL = "notify_url"
+
+# Alert switches -> the cook events each one covers. Every event is still fired on the bus.
+ALERT_GROUPS: dict[str, tuple[str, ...]] = {
+    "approaching": ("approaching",),
+    "target_reached": ("target_reached",),
+    "stage_started": ("stage_started",),
+    "done": ("done",),
+    "grill_ready": ("grill_ready",),
+    "grill_band": ("grill_low", "grill_high"),
+    "grill_recovered": ("grill_recovered",),
+    "probe": ("probe_lost", "probe_restored"),
+    "stalled": ("stalled",),
+}
+DEFAULT_ALERTS = [key for key in ALERT_GROUPS if key not in ("grill_recovered", "stalled")]
+# Alerts that should get through a silenced phone.
+URGENT_EVENTS = ("target_reached", "done", "probe_lost")
+
+NOTIFY_STARTER = "starter"
+NOTIFY_ALL = "all"
 
 IKAMAND_PREFIX = "ikamand:"
 IKAMAND_CHANNELS = ("pit", "p1", "p2", "p3")

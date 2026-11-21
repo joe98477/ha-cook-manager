@@ -162,7 +162,7 @@ async def test_cook_end_to_end(hass: HomeAssistant) -> None:
     assert "done" in kinds
     messages = [call.data["message"] for call in notify]
     assert any("take it off" in message for message in messages)
-    assert any("done" in message for message in messages)
+    assert any("Done" in message for message in messages)
     assert len(manager.history) == 1
     assert manager.history[0]["recipe_id"] == "beef_roast"
     assert manager.history[0]["weight_kg"] == 2.4

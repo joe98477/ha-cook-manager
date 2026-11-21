@@ -22,6 +22,7 @@ const SLOT_DEFAULTS = (n) => ({
   grill_controller: `select.cook_${n}_grill_controller`,
   recipe: `select.cook_${n}_recipe`,
   doneness: `select.cook_${n}_doneness`,
+  notify: `select.cook_${n}_notify`,
   target: `number.cook_${n}_target`,
   grill_target: `number.cook_${n}_grill_target`,
   weight: `number.cook_${n}_weight`,
@@ -440,6 +441,7 @@ class CookManagerCookCard extends CookManagerBase {
         ${this._select("grill_controller", e.grill_controller, "Grill controller")}
         ${this._stepper(e.weight, "Weight", "kg")}
       </div>
+      ${this._select("notify", e.notify, "Send alerts to")}
       ${noProbe ? `<div class="banner note">Plug in a probe and pick it as the meat probe to track the cook.</div>` : ""}
       <div class="actions"><button class="btn go" data-press="${e.start}"><ha-icon icon="mdi:play"></ha-icon>Start cook</button></div>`;
   }

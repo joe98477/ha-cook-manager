@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import CookManagerConfigEntry
@@ -33,10 +33,17 @@ class CookButton(SlotEntity, ButtonEntity):
     def __init__(self, manager: CookManager, slot: Slot, key: str) -> None:
         super().__init__(manager, slot, key)
         self._key = key
+        self._user_id: str | None = None
+
+    @callback
+    def async_set_context(self, context: Context) -> None:
+        """Remember who pressed, so a cook's alerts can go to the person who started it."""
+        super().async_set_context(context)
+        self._user_id = context.user_id
 
     async def async_press(self) -> None:
         if self._key == "start":
-            await self.manager.async_start(self.slot)
+            await self.manager.async_start(self.slot, self._user_id)
         elif self._key == "stop":
             await self.manager.async_stop(self.slot)
         else:

@@ -22,18 +22,26 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util.unit_conversion import TemperatureConverter
+from homeassistant.util import slugify
 from homeassistant.util.yaml import load_yaml
 
 from .const import (
     CONF_CONTROLLERS,
     COOK_RECORD_DIR,
     CONF_GRILL_TOLERANCE,
+    ALERT_GROUPS,
+    CONF_ALERTS,
     CONF_IGNORED,
+    CONF_NOTIFY_URL,
+    DEFAULT_ALERTS,
+    NOTIFY_ALL,
+    NOTIFY_STARTER,
+    URGENT_EVENTS,
     CONF_IKAMAND,
     CONF_NOTIFY,
     CONF_PRE_ALERT,
@@ -83,6 +91,8 @@ class Slot:
     target: float = DEFAULT_TARGET
     grill_target: float = DEFAULT_GRILL_TARGET
     weight_kg: float = 0.0
+    notify: str = NOTIFY_STARTER  # starter, all, or a person entity id
+    started_by: str | None = None  # Home Assistant user id of whoever started the cook
     cook: Cook | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -97,6 +107,8 @@ class Slot:
             "target": self.target,
             "grill_target": self.grill_target,
             "weight_kg": self.weight_kg,
+            "notify": self.notify,
+            "started_by": self.started_by,
             "cook": self.cook.as_dict() if self.cook else None,
         }
 
@@ -162,6 +174,10 @@ class CookManager:
         self.probe_entities: list[str] = list(options.get(CONF_PROBES, []))
         self.controller_entities: list[str] = list(options.get(CONF_CONTROLLERS, []))
         self.notify_services: list[str] = list(options.get(CONF_NOTIFY, []))
+        self.notify_url: str = (options.get(CONF_NOTIFY_URL) or "").strip()
+        self._alert_events: set[str] = {
+            event for key in options.get(CONF_ALERTS, DEFAULT_ALERTS) for event in ALERT_GROUPS.get(key, ())
+        }
         self.pre_alert = float(options.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT))
         self.grill_tolerance = float(options.get(CONF_GRILL_TOLERANCE, DEFAULT_GRILL_TOLERANCE))
         self._ignored = parse_ignored(options.get(CONF_IGNORED, DEFAULT_IGNORED))
@@ -237,6 +253,8 @@ class CookManager:
         slot.target = float(data.get("target", DEFAULT_TARGET))
         slot.grill_target = float(data.get("grill_target", DEFAULT_GRILL_TARGET))
         slot.weight_kg = float(data.get("weight_kg", 0.0))
+        slot.notify = data.get("notify") or NOTIFY_STARTER
+        slot.started_by = data.get("started_by")
         if data.get("cook"):
             try:
                 slot.cook = Cook.from_dict(
@@ -470,6 +488,10 @@ class CookManager:
             self.set_target(slot, target)
         self._changed()
 
+    def set_notify(self, slot: Slot, value: str) -> None:
+        slot.notify = value
+        self._changed()
+
     def set_weight(self, slot: Slot, weight_kg: float) -> None:
         slot.weight_kg = weight_kg
         if slot.cook is not None and slot.cook.active:
@@ -522,9 +544,10 @@ class CookManager:
 
     # ----- cook commands --------------------------------------------------
 
-    async def async_start(self, slot: Slot) -> None:
+    async def async_start(self, slot: Slot, user_id: str | None = None) -> None:
         if slot.cook is not None and slot.cook.active:
             await self.async_stop(slot)
+        slot.started_by = user_id
         recipe = self.recipes.get(slot.recipe_id) if slot.recipe_id else None
         stages = build_stages(recipe)
         watch_grill = bool(slot.grill_probe or slot.controller)
@@ -610,8 +633,10 @@ class CookManager:
                 await self._async_release_controller(slot)
             if cook is not None and ended:
                 await self._async_record_cook(slot, cook)
-            if event.notify:
-                await self._async_notify(event.message)
+            if event.type == EVENT_STOPPED:
+                await self._async_clear_notification(slot)
+            elif event.notify and event.type in self._alert_events:
+                await self._async_notify(slot, cook, event)
 
     async def _async_record_cook(self, slot: Slot, cook: Cook) -> None:
         """Write the finished cook to its own file and add it to the history index."""
@@ -641,18 +666,111 @@ class CookManager:
         self.history.insert(0, {**cook.summary(), "file": filename})
         del self.history[HISTORY_LIMIT:]
 
-    async def _async_notify(self, message: str) -> None:
-        for service in self.notify_services:
-            name = service.split(".", 1)[1] if service.startswith("notify.") else service
-            if not self.hass.services.has_service("notify", name):
-                _LOGGER.warning("Notify service notify.%s does not exist", name)
+    # ----- notifications --------------------------------------------------
+
+    def _people(self) -> dict[str, str]:
+        """Person entity id -> name, for people who have a phone with the Home Assistant app."""
+        people: dict[str, str] = {}
+        for state in self.hass.states.async_all("person"):
+            if self._person_services(state.entity_id):
+                people[state.entity_id] = state.name
+        return people
+
+    def notify_options(self) -> dict[str, str]:
+        """Choices for a slot's Notify select: value -> label."""
+        options = {NOTIFY_STARTER: "Whoever starts the cook", NOTIFY_ALL: "Everyone"}
+        for entity_id, name in sorted(self._people().items(), key=lambda item: item[1].lower()):
+            options[entity_id] = name if name not in options.values() else f"{name} ({entity_id})"
+        return options
+
+    def _person_services(self, person_id: str) -> list[str]:
+        """Notify service names of the phones a person carries (Home Assistant app only)."""
+        state = self.hass.states.get(person_id)
+        if state is None:
+            return []
+        entities = er.async_get(self.hass)
+        devices = dr.async_get(self.hass)
+        services: list[str] = []
+        for tracker in state.attributes.get("device_trackers", []):
+            entry = entities.async_get(tracker)
+            if entry is None or entry.platform != "mobile_app" or entry.device_id is None:
                 continue
-            try:
-                await self.hass.services.async_call(
-                    "notify", name, {"title": "Cook Manager", "message": message}, blocking=False
+            device = devices.async_get(entry.device_id)
+            if device is None:
+                continue
+            for name in (device.name, device.name_by_user):
+                service = slugify(f"mobile_app_{name}") if name else None
+                if service and self.hass.services.has_service("notify", service):
+                    if service not in services:
+                        services.append(service)
+                    break
+        return services
+
+    def _person_for_user(self, user_id: str | None) -> str | None:
+        if not user_id:
+            return None
+        for state in self.hass.states.async_all("person"):
+            if state.attributes.get("user_id") == user_id:
+                return state.entity_id
+        return None
+
+    def recipients(self, slot: Slot) -> list[str]:
+        """Notify service names for a slot's alerts.
+
+        The slot's choice decides: whoever started the cook, one person, or everyone on the
+        list from the setup options. That list is also the fallback when the person has no
+        phone that can be found (or the cook was started by an automation).
+        """
+        person: str | None = None
+        if slot.notify == NOTIFY_STARTER:
+            person = self._person_for_user(slot.started_by)
+        elif slot.notify != NOTIFY_ALL:
+            person = slot.notify
+        if person:
+            services = self._person_services(person)
+            if services:
+                return services
+        names = [s.split(".", 1)[1] if s.startswith("notify.") else s for s in self.notify_services]
+        return [name for name in names if self.hass.services.has_service("notify", name)]
+
+    async def _async_send(self, service: str, payload: dict[str, Any]) -> None:
+        try:
+            await self.hass.services.async_call("notify", service, payload, blocking=False)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Notification through notify.%s failed: %s", service, err)
+
+    async def _async_notify(self, slot: Slot, cook: Cook | None, event: CookEvent) -> None:
+        """One notification per cook that updates in place on phones; plain text elsewhere."""
+        name = cook.name if cook else slot.name or f"Cook {slot.index}"
+        message = event.message
+        if message.startswith(f"{name}: "):
+            message = message[len(name) + 2 :]
+        message = message[:1].upper() + message[1:]
+        urgent = event.type in URGENT_EVENTS
+        for service in self.recipients(slot):
+            payload: dict[str, Any] = {"title": name, "message": message}
+            if service.startswith("mobile_app_"):
+                data: dict[str, Any] = {
+                    "tag": f"cook_manager_{slot.index}",
+                    "group": "cook_manager",
+                    "channel": "Cook alerts" if urgent else "Cook updates",
+                    "importance": "high" if urgent else "default",
+                    "push": {"interruption-level": "time-sensitive" if urgent else "active"},
+                }
+                if urgent:
+                    data.update({"ttl": 0, "priority": "high"})
+                if self.notify_url:
+                    data.update({"clickAction": self.notify_url, "url": self.notify_url})
+                payload["data"] = data
+            await self._async_send(service, payload)
+
+    async def _async_clear_notification(self, slot: Slot) -> None:
+        """The cook is over: take its notification off the phones."""
+        for service in self.recipients(slot):
+            if service.startswith("mobile_app_"):
+                await self._async_send(
+                    service, {"message": "clear_notification", "data": {"tag": f"cook_manager_{slot.index}"}}
                 )
-            except HomeAssistantError as err:
-                _LOGGER.warning("Notification through notify.%s failed: %s", name, err)
 
     async def _async_set_controller_temp(self, slot: Slot, celsius: float) -> None:
         """Hand the grill target to the controller. The controller does its own regulation."""

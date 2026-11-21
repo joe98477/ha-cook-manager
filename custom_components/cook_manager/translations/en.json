@@ -8,21 +8,25 @@
           "slots": "Cook slots",
           "probes": "Probes",
           "grill_controllers": "Grill controllers",
-          "notify_services": "Notify",
+          "notify_services": "Notify (everyone)",
           "ignored_readings": "Readings that mean no probe",
           "pre_alert": "Approaching alert",
           "grill_tolerance": "Grill band",
-          "ikamand_hosts": "iKamand address"
+          "ikamand_hosts": "iKamand address",
+          "alerts": "Alerts to send",
+          "notify_url": "Page a notification opens"
         },
         "data_description": {
           "slots": "How many cooks can run at once.",
           "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
           "grill_controllers": "Optional. Climate entities from other integrations that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
-          "notify_services": "Notify services that receive cook alerts, for example a phone.",
+          "notify_services": "Notify services used when a cook is set to notify everyone, and as the fallback when the person who started a cook has no phone with the Home Assistant app.",
           "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
           "pre_alert": "Alert this many degrees before a meat target.",
           "grill_tolerance": "Alert when the grill is this far above or below its target.",
-          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas."
+          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas.",
+          "alerts": "Alerts that are sent as notifications. All of them still fire as cook_manager_event events.",
+          "notify_url": "Optional. Dashboard path opened when a phone notification is tapped, for example /lovelace/bbq."
         }
       }
     },
@@ -38,21 +42,25 @@
           "slots": "Cook slots",
           "probes": "Probes",
           "grill_controllers": "Grill controllers",
-          "notify_services": "Notify",
+          "notify_services": "Notify (everyone)",
           "ignored_readings": "Readings that mean no probe",
           "pre_alert": "Approaching alert",
           "grill_tolerance": "Grill band",
-          "ikamand_hosts": "iKamand address"
+          "ikamand_hosts": "iKamand address",
+          "alerts": "Alerts to send",
+          "notify_url": "Page a notification opens"
         },
         "data_description": {
           "slots": "How many cooks can run at once.",
           "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
           "grill_controllers": "Optional. Climate entities from other integrations that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
-          "notify_services": "Notify services that receive cook alerts, for example a phone.",
+          "notify_services": "Notify services used when a cook is set to notify everyone, and as the fallback when the person who started a cook has no phone with the Home Assistant app.",
           "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
           "pre_alert": "Alert this many degrees before a meat target.",
           "grill_tolerance": "Alert when the grill is this far above or below its target.",
-          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas."
+          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas.",
+          "alerts": "Alerts that are sent as notifications. All of them still fire as cook_manager_event events.",
+          "notify_url": "Optional. Dashboard path opened when a phone notification is tapped, for example /lovelace/bbq."
         }
       }
     }
@@ -130,6 +138,9 @@
       },
       "doneness": {
         "name": "Doneness"
+      },
+      "notify": {
+        "name": "Notify"
       }
     },
     "number": {
@@ -238,6 +249,21 @@
     "reload_recipes": {
       "name": "Reload recipes",
       "description": "Read the recipe files again."
+    }
+  },
+  "selector": {
+    "alerts": {
+      "options": {
+        "approaching": "Approaching the target",
+        "target_reached": "Target reached, take it off",
+        "stage_started": "Recipe stage changes",
+        "done": "Rest finished, done",
+        "grill_ready": "Grill up to temperature",
+        "grill_band": "Grill too low or too high",
+        "grill_recovered": "Grill back in its band",
+        "probe": "Probe lost and back",
+        "stalled": "Stall detected"
+      }
     }
   }
 }
