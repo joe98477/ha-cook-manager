@@ -8,7 +8,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.core import HomeAssistant
 
 from custom_components.cook_manager.const import DOMAIN
-from custom_components.cook_manager.ikamand import Ikamand
+from custom_components.cook_manager.ikamand import Ikamand, parse_reply
 
 HOST = "192.0.2.10"
 PIT = f"ikamand:{HOST}:pit"
@@ -66,11 +66,21 @@ class FakeIkamand:
         )
 
 
+def test_parse_reply() -> None:
+    """The real device sends two status lines and no headers."""
+    raw = b"HTTP/1.0 200 OK\r\nHTTP/1.1 200 OK\r\n\ntime=1795249740&rm=0&acs=0&csid=&cm=0&pt=28&t1=400&dc=0&tpt=0"
+    reply = parse_reply(raw)
+    assert reply["pt"] == "28" and reply["csid"] == "" and reply["time"] == "1795249740"
+    assert parse_reply(b"HTTP/1.0 200 OK\r\nHTTP/1.1 200 OK\r\n\n") == {}
+    assert parse_reply(b"HTTP/1.0 404 Not Found\r\n\n") is None
+    assert parse_reply(b"") is None
+
+
 async def test_device_holds_target_and_recovers() -> None:
     fake = FakeIkamand()
     p = fake.patches()
     with p[0], p[1], p[2]:
-        device = Ikamand(None, HOST)
+        device = Ikamand(HOST)
         await device.async_update()
         assert device.online
         assert device.temperature("pit") == 25
@@ -120,7 +130,7 @@ async def test_device_boost_returns_to_target() -> None:
     fake = FakeIkamand()
     p = fake.patches()
     with p[0], p[1], p[2]:
-        device = Ikamand(None, HOST)
+        device = Ikamand(HOST)
         await device.async_update()
         await device.async_set_target(120)
         fake.advance(30)
@@ -147,7 +157,7 @@ async def test_device_adopts_running_cook() -> None:
     fake.state.update({"acs": "1", "tpt": "135", "sce": str(int(fake.now()) + 80000)})
     p = fake.patches()
     with p[0], p[1], p[2]:
-        device = Ikamand(None, HOST)
+        device = Ikamand(HOST)
         await device.async_update()
         assert device.wanted_target == 135
         assert fake.posts == []

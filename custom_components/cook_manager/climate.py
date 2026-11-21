@@ -32,7 +32,7 @@ class IkamandClimate(IkamandEntity, ClimateEntity):
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
     )
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_min_temp = MIN_TARGET
     _attr_max_temp = MAX_TARGET
     _attr_target_temperature_step = 1
@@ -51,14 +51,20 @@ class IkamandClimate(IkamandEntity, ClimateEntity):
         return HVACAction.HEATING if self.device.fan else HVACAction.IDLE
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self.device.temperature("pit")
 
     @property
-    def target_temperature(self) -> float:
+    def native_target_temperature(self) -> float:
         if self.device.wanted_target is not None:
             return self.device.wanted_target
         return self.device.last_target
+
+    if not hasattr(ClimateEntity, "native_current_temperature"):
+        # Home Assistant before 2026.11 knows these under their old names.
+        _attr_temperature_unit = UnitOfTemperature.CELSIUS
+        current_temperature = native_current_temperature
+        target_temperature = native_target_temperature
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

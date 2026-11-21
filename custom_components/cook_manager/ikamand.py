@@ -11,8 +11,12 @@ Celsius. The iKamand does its own fan regulation; this module only tells it the 
 and makes sure it keeps that target (after a power blip, a dropped connection or the
 24 hour limit the device puts on a cook).
 
+The iKamand's web server does not send valid HTTP (two status lines, no headers), which
+strict clients such as aiohttp refuse. So the requests are made over a plain socket and the
+reply is read leniently.
+
 Protocol knowledge comes from the plmilord/Hass.io-custom-component-ikamand project.
-No Home Assistant imports here apart from the HTTP session that is passed in.
+No Home Assistant imports here.
 """
 
 from __future__ import annotations
@@ -22,8 +26,6 @@ import logging
 import time
 from typing import Any
 from urllib.parse import parse_qs, urlencode
-
-import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,12 +43,20 @@ _COOK_SECONDS = 86400  # the device wants an end time for every cook
 _RENEW_BEFORE = 3600
 _REPOST_GAP = 12  # give the device time to show a command before repeating it
 
-_HEADERS = {
-    "Content-Type": "application/json",  # what the vendor app sent; the body is form-encoded
-    "Accept": "application/json",
-    "User-Agent": "ikamand",
-    "Connection": "close",
-}
+_MAX_REPLY = 16384
+
+
+def parse_reply(raw: bytes) -> dict[str, str] | None:
+    """Status and key=value body out of the iKamand's reply; None unless it says 200.
+
+    A reply looks like b"HTTP/1.0 200 OK\r\nHTTP/1.1 200 OK\r\n\ntime=1&acs=0&pt=28".
+    """
+    lines = [line.strip() for line in raw.decode("ascii", errors="replace").splitlines()]
+    lines = [line for line in lines if line]
+    if not lines or not lines[0].startswith("HTTP/") or " 200" not in lines[0]:
+        return None
+    body = next((line for line in reversed(lines) if not line.startswith("HTTP/") and "=" in line), "")
+    return {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
 
 CHANNELS = {"pit": "pt", "p1": "t1", "p2": "t2", "p3": "t3"}
 
@@ -54,10 +64,9 @@ CHANNELS = {"pit": "pt", "p1": "t1", "p2": "t2", "p3": "t3"}
 class Ikamand:
     """One iKamand: last reading, the wanted state, and keeping the device on it."""
 
-    def __init__(self, session: aiohttp.ClientSession, host: str) -> None:
+    def __init__(self, host: str, port: int = 80) -> None:
         self.host = host
-        self._session = session
-        self._base = f"http://{host}/cgi-bin/"
+        self._port = port
         self.data: dict[str, str] = {}
         self.info: dict[str, str] = {}
         self.online = False
@@ -68,30 +77,49 @@ class Ikamand:
         self._adopted = False
         self._fails = 0
         self._last_post = 0.0
+        self._cook_end = 0.0  # end time last sent; the device does not always report it
 
     # ----- transport ------------------------------------------------------
 
-    async def _get(self, path: str) -> dict[str, str] | None:
+    async def _request(self, method: str, path: str, body: str = "") -> dict[str, str] | None:
+        """One request on its own connection. None when the device did not answer with 200."""
+        head = [
+            f"{method} /cgi-bin/{path} HTTP/1.1",
+            f"Host: {self.host}",
+            "User-Agent: ikamand",
+            "Accept: application/json",
+            "Connection: close",
+        ]
+        if method == "POST":
+            # The vendor app sent a form-encoded body under a JSON content type.
+            head += ["Content-Type: application/json", f"Content-Length: {len(body)}"]
+        request = ("\r\n".join(head) + "\r\n\r\n" + body).encode("ascii")
+        writer = None
         try:
             async with asyncio.timeout(_TIMEOUT):
-                async with self._session.get(self._base + path, headers={"Connection": "close"}) as response:
-                    if response.status >= 300:
-                        return None
-                    text = await response.text(errors="replace")
-        except (aiohttp.ClientError, TimeoutError, OSError):
+                reader, writer = await asyncio.open_connection(self.host, self._port)
+                writer.write(request)
+                await writer.drain()
+                raw = await reader.read(_MAX_REPLY)
+                while len(raw) < _MAX_REPLY and (more := await reader.read(_MAX_REPLY)):
+                    raw += more
+        except (TimeoutError, OSError) as err:
+            _LOGGER.debug("iKamand %s: %s %s failed: %r", self.host, method, path, err)
             return None
-        return {key: values[0] for key, values in parse_qs(text.strip()).items()}
+        finally:
+            if writer is not None:
+                writer.close()
+        reply = parse_reply(raw)
+        if reply is None:
+            _LOGGER.debug("iKamand %s: %s %s answered %r", self.host, method, path, raw[:200])
+        return reply
+
+    async def _get(self, path: str) -> dict[str, str] | None:
+        return await self._request("GET", path)
 
     async def _post(self, payload: dict[str, Any]) -> bool:
         self._last_post = time.time()
-        try:
-            async with asyncio.timeout(_TIMEOUT):
-                async with self._session.post(
-                    self._base + "cook", data=urlencode(payload), headers=_HEADERS
-                ) as response:
-                    return response.status < 300
-        except (aiohttp.ClientError, TimeoutError, OSError):
-            return False
+        return await self._request("POST", "cook", urlencode(payload)) is not None
 
     # ----- readings -------------------------------------------------------
 
@@ -197,6 +225,8 @@ class Ikamand:
             self.data["acs"] = str(payload["acs"])
             self.data["tpt"] = str(payload["tpt"])
             self.data["sce"] = str(end)
+        if ok:
+            self._cook_end = float(end)
         return ok
 
     # ----- polling --------------------------------------------------------
@@ -230,6 +260,7 @@ class Ikamand:
             self._adopted = True
             if device_clock >= _BOOT_SECONDS and data.get("acs") == "1":
                 self.wanted_target = self._int("tpt") or None
+                self._cook_end = float(self._int("sce"))
                 self.last_target = self.wanted_target or self.last_target
 
         if now - self._last_post < _REPOST_GAP:
@@ -241,7 +272,7 @@ class Ikamand:
             drifted = (
                 data.get("acs") != "1"
                 or self._int("tpt") != target
-                or (not self.boosting and self._int("sce") - now < _RENEW_BEFORE)
+                or (not self.boosting and self._cook_end - now < _RENEW_BEFORE)
             )
         clock_off = target is not None and abs(device_clock - now) > _CLOCK_DRIFT
         if drifted or clock_off:

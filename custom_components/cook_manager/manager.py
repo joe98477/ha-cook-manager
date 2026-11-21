@@ -23,7 +23,6 @@ from homeassistant.const import (
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -169,9 +168,8 @@ class CookManager:
 
         # iKamands that Cook Manager talks to itself. Their pit and food probes join the
         # probe pool and each one is a grill controller, under ids like "ikamand:<host>:pit".
-        session = async_get_clientsession(hass)
         self.ikamands: dict[str, Ikamand] = {
-            host: Ikamand(session, host) for host in parse_hosts(options.get(CONF_IKAMAND))
+            host: Ikamand(host) for host in parse_hosts(options.get(CONF_IKAMAND))
         }
         self.probe_sources: list[str] = [
             *self.probe_entities,
