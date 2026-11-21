@@ -8,7 +8,7 @@ import logging
 import math
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -91,7 +91,9 @@ class Slot:
     target: float = DEFAULT_TARGET
     grill_target: float = DEFAULT_GRILL_TARGET
     weight_kg: float = 0.0
-    notify: str = NOTIFY_STARTER  # starter, all, or a person entity id
+    # Who gets this cook's alerts: any of starter, all, and person entity ids.
+    notify: list[str] = field(default_factory=lambda: [NOTIFY_STARTER])
+    alerts: list[str] | None = None  # alert switches for this cook; None = the setup default
     started_by: str | None = None  # Home Assistant user id of whoever started the cook
     cook: Cook | None = None
 
@@ -108,6 +110,7 @@ class Slot:
             "grill_target": self.grill_target,
             "weight_kg": self.weight_kg,
             "notify": self.notify,
+            "alerts": self.alerts,
             "started_by": self.started_by,
             "cook": self.cook.as_dict() if self.cook else None,
         }
@@ -175,9 +178,9 @@ class CookManager:
         self.controller_entities: list[str] = list(options.get(CONF_CONTROLLERS, []))
         self.notify_services: list[str] = list(options.get(CONF_NOTIFY, []))
         self.notify_url: str = (options.get(CONF_NOTIFY_URL) or "").strip()
-        self._alert_events: set[str] = {
-            event for key in options.get(CONF_ALERTS, DEFAULT_ALERTS) for event in ALERT_GROUPS.get(key, ())
-        }
+        self.default_alerts: list[str] = [
+            key for key in options.get(CONF_ALERTS, DEFAULT_ALERTS) if key in ALERT_GROUPS
+        ]
         self.pre_alert = float(options.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT))
         self.grill_tolerance = float(options.get(CONF_GRILL_TOLERANCE, DEFAULT_GRILL_TOLERANCE))
         self._ignored = parse_ignored(options.get(CONF_IGNORED, DEFAULT_IGNORED))
@@ -253,7 +256,9 @@ class CookManager:
         slot.target = float(data.get("target", DEFAULT_TARGET))
         slot.grill_target = float(data.get("grill_target", DEFAULT_GRILL_TARGET))
         slot.weight_kg = float(data.get("weight_kg", 0.0))
-        slot.notify = data.get("notify") or NOTIFY_STARTER
+        stored = data.get("notify") or [NOTIFY_STARTER]
+        slot.notify = [stored] if isinstance(stored, str) else list(stored)
+        slot.alerts = list(data["alerts"]) if data.get("alerts") is not None else None
         slot.started_by = data.get("started_by")
         if data.get("cook"):
             try:
@@ -488,9 +493,20 @@ class CookManager:
             self.set_target(slot, target)
         self._changed()
 
-    def set_notify(self, slot: Slot, value: str) -> None:
-        slot.notify = value
+    def configure_slot(
+        self, slot: Slot, *, notify: list[str] | None = None, alerts: list[str] | None = None, reset_alerts: bool = False
+    ) -> None:
+        """Settings of a cook slot that are not entities: who gets its alerts, and which alerts."""
+        if notify is not None:
+            slot.notify = list(dict.fromkeys(notify)) or [NOTIFY_STARTER]
+        if reset_alerts:
+            slot.alerts = None
+        elif alerts is not None:
+            slot.alerts = [key for key in ALERT_GROUPS if key in alerts]
         self._changed()
+
+    def slot_alerts(self, slot: Slot) -> list[str]:
+        return slot.alerts if slot.alerts is not None else self.default_alerts
 
     def set_weight(self, slot: Slot, weight_kg: float) -> None:
         slot.weight_kg = weight_kg
@@ -635,7 +651,9 @@ class CookManager:
                 await self._async_record_cook(slot, cook)
             if event.type == EVENT_STOPPED:
                 await self._async_clear_notification(slot)
-            elif event.notify and event.type in self._alert_events:
+            elif event.notify and any(
+                event.type in ALERT_GROUPS[key] for key in self.slot_alerts(slot)
+            ):
                 await self._async_notify(slot, cook, event)
 
     async def _async_record_cook(self, slot: Slot, cook: Cook) -> None:
@@ -714,24 +732,38 @@ class CookManager:
                 return state.entity_id
         return None
 
+    def notify_summary(self, slot: Slot) -> str:
+        """Who a slot's alerts go to, in words. Names the starter once a cook is running."""
+        options = self.notify_options()
+        names: list[str] = []
+        for value in slot.notify:
+            label = options.get(value, value)
+            if value == NOTIFY_STARTER and slot.cook is not None and slot.cook.active:
+                person = self._person_for_user(slot.started_by)
+                state = self.hass.states.get(person) if person else None
+                label = state.name if state is not None else "Everyone"
+            if label not in names:
+                names.append(label)
+        return ", ".join(names)
+
     def recipients(self, slot: Slot) -> list[str]:
         """Notify service names for a slot's alerts.
 
-        The slot's choice decides: whoever started the cook, one person, or everyone on the
-        list from the setup options. That list is also the fallback when the person has no
-        phone that can be found (or the cook was started by an automation).
+        The slot lists who: whoever started the cook, everyone (the list from the setup options),
+        and named people. The setup list is also the fallback when nobody on the slot's list has
+        a phone that can be found (or the cook was started by an automation).
         """
-        person: str | None = None
-        if slot.notify == NOTIFY_STARTER:
-            person = self._person_for_user(slot.started_by)
-        elif slot.notify != NOTIFY_ALL:
-            person = slot.notify
-        if person:
-            services = self._person_services(person)
-            if services:
-                return services
-        names = [s.split(".", 1)[1] if s.startswith("notify.") else s for s in self.notify_services]
-        return [name for name in names if self.hass.services.has_service("notify", name)]
+        everyone = [s.split(".", 1)[1] if s.startswith("notify.") else s for s in self.notify_services]
+        everyone = [name for name in everyone if self.hass.services.has_service("notify", name)]
+        services: list[str] = []
+        for value in slot.notify:
+            if value == NOTIFY_ALL:
+                found = everyone
+            else:
+                person = self._person_for_user(slot.started_by) if value == NOTIFY_STARTER else value
+                found = self._person_services(person) if person else []
+            services.extend(name for name in found if name not in services)
+        return services or everyone
 
     async def _async_send(self, service: str, payload: dict[str, Any]) -> None:
         try:

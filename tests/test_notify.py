@@ -67,10 +67,13 @@ async def reach_target(hass: HomeAssistant, manager, clock: dict) -> None:
 async def test_alerts_go_to_whoever_started_the_cook(hass: HomeAssistant) -> None:
     entry, calls = await setup(hass)
     manager = entry.runtime_data
-    assert hass.states.get("select.cook_1_notify").state == "Whoever starts the cook"
-    assert hass.states.get("select.cook_1_notify").attributes["options"] == [
-        "Whoever starts the cook", "Everyone", "Joe", "Zach"
+    attributes = hass.states.get("sensor.cook_1").attributes
+    assert attributes["notify"] == ["starter"]
+    assert attributes["notify_summary"] == "Whoever starts the cook"
+    assert attributes["notify_choices"] == [
+        ["starter", "Whoever starts the cook"], ["all", "Everyone"], ["person.joe", "Joe"], ["person.zach", "Zach"]
     ]
+    assert attributes["alerts"] == ["approaching", "target_reached", "stage_started", "done", "grill_ready", "grill_band", "probe"]
     clock = {"now": 1_000_000.0}
     with patch("custom_components.cook_manager.manager.time.time", side_effect=lambda: clock["now"]):
         await hass.services.async_call(
@@ -80,6 +83,7 @@ async def test_alerts_go_to_whoever_started_the_cook(hass: HomeAssistant) -> Non
             blocking=True,
             context=Context(user_id="user-zach"),
         )
+        assert hass.states.get("sensor.cook_1").attributes["notify_summary"] == "Zach"
         await reach_target(hass, manager, clock)
 
         assert calls["joe"] == [] and calls["house"] == []
@@ -129,9 +133,7 @@ async def test_everyone_one_person_and_fallback(hass: HomeAssistant) -> None:
         await hass.services.async_call(DOMAIN, "stop_cook", {"slot": 1}, blocking=True)
 
         # One named person, whoever starts it.
-        await hass.services.async_call(
-            "select", "select_option", {"entity_id": "select.cook_1_notify", "option": "Joe"}, blocking=True
-        )
+        await hass.services.async_call(DOMAIN, "configure_cook", {"slot": 1, "notify": ["person.joe"]}, blocking=True)
         await hass.services.async_call(
             DOMAIN,
             "start_cook",
@@ -142,6 +144,41 @@ async def test_everyone_one_person_and_fallback(hass: HomeAssistant) -> None:
         await reach_target(hass, manager, clock)
         assert calls["joe"][-1].data["data"]["tag"] == "cook_manager_1"
         assert calls["zach"] == []
+        await hass.services.async_call(DOMAIN, "stop_cook", {"slot": 1}, blocking=True)
+        await hass.async_block_till_done()
+
+        # Several at once: the starter, another person and the house list, each told once.
+        for key in calls:
+            calls[key].clear()
+        await hass.services.async_call(
+            DOMAIN, "configure_cook", {"slot": 1, "notify": ["starter", "person.joe", "all"]}, blocking=True
+        )
+        await hass.services.async_call(
+            DOMAIN,
+            "start_cook",
+            {"slot": 1, "probe": "sensor.probe_a", "target": 70},
+            blocking=True,
+            context=Context(user_id="user-zach"),
+        )
+        await reach_target(hass, manager, clock)
+        assert [len(calls[key]) for key in ("zach", "joe", "house")] == [2, 2, 2]
+
+
+async def test_alert_switches_for_one_cook(hass: HomeAssistant) -> None:
+    entry, calls = await setup(hass)
+    manager = entry.runtime_data
+    await hass.services.async_call(DOMAIN, "configure_cook", {"slot": 1, "alerts": ["target_reached"]}, blocking=True)
+    assert hass.states.get("sensor.cook_1").attributes["alerts"] == ["target_reached"]
+    assert hass.states.get("sensor.cook_2").attributes["alerts_custom"] is False
+    clock = {"now": 1_000_000.0}
+    with patch("custom_components.cook_manager.manager.time.time", side_effect=lambda: clock["now"]):
+        await hass.services.async_call(
+            DOMAIN, "start_cook", {"slot": 1, "probe": "sensor.probe_a", "target": 70}, blocking=True
+        )
+        await reach_target(hass, manager, clock)
+    assert [call.data["message"] for call in calls["house"]] == ["Reached 71°, take it off"]
+    await hass.services.async_call(DOMAIN, "configure_cook", {"slot": 1, "alerts": None}, blocking=True)
+    assert hass.states.get("sensor.cook_1").attributes["alerts_custom"] is False
 
 
 async def test_alert_switches(hass: HomeAssistant) -> None:

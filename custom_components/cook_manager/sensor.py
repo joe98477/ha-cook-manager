@@ -103,6 +103,11 @@ class StatusSensor(SlotEntity, SensorEntity):
             "grill_probe": slot.grill_probe,
             "grill_controller": slot.controller,
             "recipe": self.manager.recipe_label(slot),
+            "notify": list(slot.notify),
+            "notify_summary": self.manager.notify_summary(slot),
+            "notify_choices": [list(item) for item in self.manager.notify_options().items()],
+            "alerts": list(self.manager.slot_alerts(slot)),
+            "alerts_custom": slot.alerts is not None,
         }
         if cook is None or cook.status == CookStatus.IDLE:
             return attrs

@@ -27,7 +27,6 @@ async def async_setup_entry(
                 ControllerSelect(manager, slot),
                 RecipeSelect(manager, slot),
                 DonenessSelect(manager, slot),
-                NotifySelect(manager, slot),
             ]
         )
     async_add_entities(entities)
@@ -129,27 +128,3 @@ class DonenessSelect(SlotEntity, SelectEntity):
         if match is not None:
             self.manager.set_doneness(self.slot, match.id)
 
-
-class NotifySelect(SlotEntity, SelectEntity):
-    """Who gets this slot's alerts: whoever starts the cook, everyone, or one person."""
-
-    def __init__(self, manager: CookManager, slot: Slot) -> None:
-        super().__init__(manager, slot, "notify")
-
-    @property
-    def options(self) -> list[str]:
-        options = self.manager.notify_options()
-        labels = list(options.values())
-        if self.slot.notify not in options:
-            labels.append(self.slot.notify)
-        return labels
-
-    @property
-    def current_option(self) -> str:
-        return self.manager.notify_options().get(self.slot.notify, self.slot.notify)
-
-    async def async_select_option(self, option: str) -> None:
-        for value, label in self.manager.notify_options().items():
-            if label == option:
-                self.manager.set_notify(self.slot, value)
-                return

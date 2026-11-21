@@ -138,9 +138,6 @@
       },
       "doneness": {
         "name": "Doneness"
-      },
-      "notify": {
-        "name": "Notify"
       }
     },
     "number": {
@@ -249,6 +246,24 @@
     "reload_recipes": {
       "name": "Reload recipes",
       "description": "Read the recipe files again."
+    },
+    "configure_cook": {
+      "name": "Configure cook",
+      "description": "Settings of a cook slot: who gets its alerts and which alerts it sends.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Cook slot number."
+        },
+        "notify": {
+          "name": "Notify",
+          "description": "List of who gets the alerts: starter (whoever starts the cook), all (the setup list), and person entity ids."
+        },
+        "alerts": {
+          "name": "Alerts",
+          "description": "List of alerts to send: approaching, target_reached, stage_started, done, grill_ready, grill_band, grill_recovered, probe, stalled. Leave empty to go back to the setup default."
+        }
+      }
     }
   },
   "selector": {

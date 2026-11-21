@@ -22,7 +22,6 @@ const SLOT_DEFAULTS = (n) => ({
   grill_controller: `select.cook_${n}_grill_controller`,
   recipe: `select.cook_${n}_recipe`,
   doneness: `select.cook_${n}_doneness`,
-  notify: `select.cook_${n}_notify`,
   target: `number.cook_${n}_target`,
   grill_target: `number.cook_${n}_grill_target`,
   weight: `number.cook_${n}_weight`,
@@ -57,6 +56,18 @@ function deviceEntities(hass, match, defaults) {
   }
   return found;
 }
+
+const ALERT_LABELS = {
+  approaching: "Approaching the target",
+  target_reached: "Target reached",
+  stage_started: "Recipe stage changes",
+  done: "Done",
+  grill_ready: "Grill up to temperature",
+  grill_band: "Grill too low or high",
+  grill_recovered: "Grill back in its band",
+  probe: "Probe lost",
+  stalled: "Stall",
+};
 
 const esc = (text) =>
   String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -126,7 +137,7 @@ const STYLE = `
   .dial-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
   .big { font-size: 54px; font-weight: 700; line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
   .cap { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--secondary-text-color); margin-bottom: 4px; }
-  .under { font-size: 14px; color: var(--secondary-text-color); margin-top: 6px; }
+  .under { font-size: 14px; color: var(--secondary-text-color); margin-top: 6px; max-width: 70%; }
 
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
   .stat { background: var(--cm-soft); border-radius: 14px; padding: 10px 8px; text-align: center; min-width: 0; }
@@ -188,6 +199,15 @@ const STYLE = `
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; background: var(--cm-soft); }
   .empty { color: var(--secondary-text-color); padding: 8px 0; }
+  .cog { flex: none; border: 0; background: none; color: var(--secondary-text-color); cursor: pointer; padding: 4px; margin: -4px -4px -4px 0; border-radius: 50%; display: flex; }
+  .cog ha-icon { color: inherit; --mdc-icon-size: 22px; }
+  .group { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--secondary-text-color); margin: 14px 0 6px; }
+  .hint { font-size: 12.5px; color: var(--secondary-text-color); margin-top: 6px; }
+  .togs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tog { border: 0; font: inherit; font-size: 13.5px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: var(--cm-soft); color: var(--secondary-text-color); }
+  .tog.on { background: color-mix(in srgb, var(--cm-heat-1) 26%, transparent); color: var(--primary-text-color); font-weight: 600; }
+  .tog.on::before { content: "✓ "; color: var(--cm-heat-1); }
+  .meta { border: 0; background: none; font: inherit; width: 100%; text-align: center; cursor: pointer; font-size: 12.5px; color: var(--secondary-text-color); margin-top: 10px; padding: 2px; }
 
   ha-card.summary { padding: 6px 14px; cursor: pointer; }
   .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
@@ -319,6 +339,7 @@ class CookManagerCookCard extends CookManagerBase {
     this._history = null;
     this._historyKey = null;
     this._signature = null;
+    this._settings = false;
   }
 
   disconnectedCallback() {
@@ -339,9 +360,10 @@ class CookManagerCookCard extends CookManagerBase {
     const ids = (this._e = this._ids());
     const parts = Object.values(ids).map((id) => {
       const s = this._state(id);
-      return s ? [s.state, s.attributes.options, s.attributes.stage, s.attributes.grill_state, s.attributes.stalled, s.attributes.probe_lost, s.attributes.cook_name, s.attributes.target] : null;
+      const a = s ? s.attributes : null;
+      return s ? [s.state, a.options, a.stage, a.grill_state, a.stalled, a.probe_lost, a.cook_name, a.target, a.notify, a.notify_summary, a.notify_choices, a.alerts] : null;
     });
-    return JSON.stringify([parts, this._history ? this._history.stamp : 0]);
+    return JSON.stringify([parts, this._history ? this._history.stamp : 0, this._settings]);
   }
 
   async _loadHistory(force) {
@@ -406,7 +428,68 @@ class CookManagerCookCard extends CookManagerBase {
     const status = this._state(e.status);
     if (!status) return `<div class="empty">Cook slot ${this._config.slot} was not found. Is Cook Manager set up?</div>`;
     if (status.state === "unavailable") return `<div class="empty">Cook Manager is not running.</div>`;
+    if (this._settings) return this._renderSettings(status);
     return status.state === "idle" ? this._renderSetup(status) : this._renderCook(status);
+  }
+
+  _cog() {
+    return `<button class="cog" data-act="settings" aria-label="Cook settings"><ha-icon icon="mdi:cog"></ha-icon></button>`;
+  }
+
+  /* One line under the card saying what the settings behind the cog are set to. */
+  _meta(status) {
+    const a = status.attributes;
+    const controller = this._state(this._e.grill_controller)?.state;
+    const parts = [];
+    if (controller && controller !== "None") parts.push(`${controller} holds the grill`);
+    if (a.notify_summary) parts.push(`alerts to ${a.notify_summary.toLowerCase() === a.notify_summary ? a.notify_summary : a.notify_summary.replace(/^Whoever/, "whoever").replace(/^Everyone/, "everyone")}`);
+    return parts.length ? `<button class="meta" data-act="settings">${esc(parts.join(" · "))}</button>` : "";
+  }
+
+  _action(act) {
+    const status = this._state(this._e.status);
+    if (act === "settings") {
+      this._settings = !this._settings;
+      this._update(true);
+      return;
+    }
+    if (!status) return;
+    const [kind, value] = [act.slice(0, act.indexOf(":")), act.slice(act.indexOf(":") + 1)];
+    const toggled = (list) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+    const data = { slot: this._config.slot };
+    if (kind === "notify") data.notify = toggled(status.attributes.notify || []);
+    else if (kind === "alert") data.alerts = toggled(status.attributes.alerts || []);
+    else if (act === "alerts-default") data.alerts = null;
+    else return;
+    this._hass.callService(DOMAIN, "configure_cook", data);
+  }
+
+  _renderSettings(status) {
+    const e = this._e;
+    const a = status.attributes;
+    const name = status.state !== "idle" && a.cook_name ? a.cook_name : `Cook ${this._config.slot}`;
+    const notify = a.notify || [];
+    const alerts = a.alerts || [];
+    const people = (a.notify_choices || [])
+      .map(([value, label]) => `<button class="tog${notify.includes(value) ? " on" : ""}" data-act="notify:${esc(value)}">${esc(label)}</button>`)
+      .join("");
+    const kinds = Object.entries(ALERT_LABELS)
+      .map(([key, label]) => `<button class="tog${alerts.includes(key) ? " on" : ""}" data-act="alert:${key}">${label}</button>`)
+      .join("");
+    return `
+      <div class="head"><ha-icon icon="mdi:cog"></ha-icon><div class="title">${esc(name)} settings</div></div>
+      <div class="group">Send alerts to</div>
+      <div class="togs">${people}</div>
+      <div class="hint">"Whoever starts the cook" is the person who presses Start. Pick as many as you like.</div>
+      <div class="group">Alerts for this cook</div>
+      <div class="togs">${kinds}</div>
+      ${a.alerts_custom ? `<button class="meta" data-act="alerts-default">Back to the standard alerts</button>` : ""}
+      <div class="group">Grill and meat</div>
+      <div class="grid2">
+        ${this._select("grill_controller", e.grill_controller, "Grill controller")}
+        ${this._stepper(e.weight, "Weight", "kg")}
+      </div>
+      <div class="actions"><button class="btn" data-act="settings"><ha-icon icon="mdi:check"></ha-icon>Done</button></div>`;
   }
 
   _renderSetup(status) {
@@ -421,7 +504,7 @@ class CookManagerCookCard extends CookManagerBase {
     const probe = this._state(e.probe)?.state;
     const noProbe = !probe || probe === "None";
     return `
-      <div class="head"><ha-icon icon="mdi:grill"></ha-icon><div class="title">Cook ${slot}</div><span class="pill">Ready to set up</span></div>
+      <div class="head"><ha-icon icon="mdi:grill"></ha-icon><div class="title">Cook ${slot}</div><span class="pill">Ready to set up</span>${this._cog()}</div>
       <div class="field"><label><span>Name</span></label>
         <input type="text" data-text="${e.name}" value="${esc(name && !["unknown", "unavailable"].includes(name.state) ? name.state : "")}"
           placeholder="${esc(recipe && recipe !== "Manual" ? recipe : "What are you cooking?")}" maxlength="60" aria-label="Cook name"></div>
@@ -437,13 +520,9 @@ class CookManagerCookCard extends CookManagerBase {
         ${this._stepper(e.target, "Meat target", "°")}
         ${this._stepper(e.grill_target, "Grill target", "°")}
       </div>
-      <div class="grid2">
-        ${this._select("grill_controller", e.grill_controller, "Grill controller")}
-        ${this._stepper(e.weight, "Weight", "kg")}
-      </div>
-      ${this._select("notify", e.notify, "Send alerts to")}
       ${noProbe ? `<div class="banner note">Plug in a probe and pick it as the meat probe to track the cook.</div>` : ""}
-      <div class="actions"><button class="btn go" data-press="${e.start}"><ha-icon icon="mdi:play"></ha-icon>Start cook</button></div>`;
+      <div class="actions"><button class="btn go" data-press="${e.start}"><ha-icon icon="mdi:play"></ha-icon>Start cook</button></div>
+      ${this._meta(status)}`;
   }
 
   _renderCook(status) {
@@ -491,7 +570,7 @@ class CookManagerCookCard extends CookManagerBase {
     const moreStages = (a.stage_number || 1) < (a.stage_count || 1);
 
     return `
-      <div class="head"><ha-icon icon="mdi:grill"></ha-icon><div class="title">${esc(name)}</div><span class="pill ${pill[0]}">${pill[1]}</span></div>
+      <div class="head"><ha-icon icon="mdi:grill"></ha-icon><div class="title">${esc(name)}</div><span class="pill ${pill[0]}">${pill[1]}</span>${this._cog()}</div>
       <div class="sub">${esc([a.recipe && a.recipe !== "Manual" ? a.recipe : null, a.doneness].filter(Boolean).join(" · "))}</div>
       ${banners.join("")}
       ${dial(fraction, centre, state === "cooking" ? "" : state === "resting" ? "rest" : "done")}
@@ -504,7 +583,8 @@ class CookManagerCookCard extends CookManagerBase {
         ${state === "done"
           ? `<button class="btn go" data-press="${e.stop}"><ha-icon icon="mdi:check"></ha-icon>Finish</button>`
           : `<button class="btn stop" data-press="${e.stop}" data-confirm="Stop this cook?"><ha-icon icon="mdi:stop"></ha-icon>Stop</button>`}
-      </div>`;
+      </div>
+      ${this._meta(status)}`;
   }
 }
 

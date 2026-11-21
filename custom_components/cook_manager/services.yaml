@@ -89,3 +89,22 @@ next_stage:
           mode: box
 
 reload_recipes:
+
+configure_cook:
+  fields:
+    slot:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+    notify:
+      example: '["starter", "person.alex"]'
+      selector:
+        object:
+    alerts:
+      example: '["target_reached", "done", "probe"]'
+      selector:
+        object:

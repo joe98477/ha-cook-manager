@@ -67,7 +67,6 @@ For each slot (`Cook 1`, `Cook 2`, …):
 | `binary_sensor.cook_1_attention` | On when done, the probe is lost or the grill is out of its band. |
 | `select.cook_1_probe`, `select.cook_1_grill_probe`, `select.cook_1_grill_controller` | What the slot uses. |
 | `select.cook_1_recipe`, `select.cook_1_doneness` | Recipe and doneness; choosing them fills in the targets. |
-| `select.cook_1_notify` | Who gets this cook's alerts. |
 | `number.cook_1_target`, `number.cook_1_grill_target` | Targets; can be changed during a cook. |
 | `number.cook_1_weight` | Weight of the meat, optional; stored with the cook record. |
 | `text.cook_1_name` | Name used in alerts. |
@@ -78,13 +77,18 @@ Shared: `binary_sensor.cook_manager_cooking` (any cook running),
 
 ## Notifications
 
-Each cook slot has a **Notify** choice:
+Each cook slot has its own settings, behind the cog on the cook card. **Send alerts to** takes any
+mix of:
 
 - **Whoever starts the cook** (the default). The alerts go to the phones of the person who pressed
   Start. Cook Manager finds them through the Home Assistant person linked to that user and the
   phones (Home Assistant app) listed as that person's device trackers.
 - **Everyone.** The notify services chosen in the setup options.
-- **A named person.** Their phones only.
+- **Named people.** Their phones.
+
+**Alerts for this cook** switches individual alerts on or off for that slot only. Without the
+card, use the `cook_manager.configure_cook` service (`slot`, `notify`, `alerts`); the current
+values are attributes of `sensor.cook_1`.
 
 If the person has no phone that can be found, or the cook was started by an automation, the
 "everyone" list is used.
@@ -95,7 +99,8 @@ time-sensitive on iOS and on their own high-importance channel ("Cook alerts") o
 they sound through Do Not Disturb is set on the phone, per channel. Other notify services get a
 plain title and message.
 
-Which alerts are sent is chosen under **Alerts to send**. "Stall detected" and "grill back in its
+The standard set of alerts, for slots that have not chosen their own, is under **Alerts to send**
+in the setup options. "Stall detected" and "grill back in its
 band" are off by default. Every alert still fires as an event either way.
 
 ## Dashboard cards
@@ -108,8 +113,8 @@ type: custom:cook-manager-cook-card
 slot: 1
 ```
 
-One cook slot. While idle it is the setup: name, recipe, doneness, probes, targets, grill
-controller, weight, Start. While a cook runs it shows the meat temperature on a dial that fills
+One cook slot. While idle it is the setup: name, recipe, doneness, probes, targets, Start. The
+cog opens the slot's settings: who gets its alerts, which alerts, grill controller and weight. While a cook runs it shows the meat temperature on a dial that fills
 towards the pull temperature, the grill, the time left and when it will be ready, the rate, the
 curve since the start, the recipe stages, and Next stage and Stop.
 
@@ -170,6 +175,7 @@ The local protocol was worked out by the
   recipe, doneness, target, grill_target, weight. Probes and the controller are entity ids;
   the iKamand's own entities work here too.
 - `cook_manager.stop_cook`, `cook_manager.next_stage`: slot.
+- `cook_manager.configure_cook`: slot, plus notify and alerts (see [Notifications](#notifications)).
 - `cook_manager.reload_recipes`
 
 ## Events

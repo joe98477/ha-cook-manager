@@ -13,11 +13,13 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    ALERT_GROUPS,
     CARDS_FILE,
     CARDS_URL,
     DOMAIN,
     OPTION_MANUAL,
     PLATFORMS,
+    SERVICE_CONFIGURE,
     SERVICE_NEXT_STAGE,
     SERVICE_RELOAD_RECIPES,
     SERVICE_START,
@@ -53,6 +55,13 @@ _START_SCHEMA = _SLOT_SCHEMA.extend(
         vol.Optional(ATTR_TARGET): vol.Coerce(float),
         vol.Optional(ATTR_GRILL_TARGET): vol.Coerce(float),
         vol.Optional(ATTR_WEIGHT): vol.All(vol.Coerce(float), vol.Range(min=0)),
+    }
+)
+
+_CONFIGURE_SCHEMA = _SLOT_SCHEMA.extend(
+    {
+        vol.Optional("notify"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("alerts"): vol.Any(None, vol.All(cv.ensure_list, [vol.In(list(ALERT_GROUPS))])),
     }
 )
 
@@ -119,7 +128,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_START, start_cook, schema=_START_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, stop_cook, schema=_SLOT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_NEXT_STAGE, next_stage, schema=_SLOT_SCHEMA)
+    async def configure_cook(call: ServiceCall) -> None:
+        manager = _manager(hass)
+        manager.configure_slot(
+            manager.slot(call.data[ATTR_SLOT]),
+            notify=call.data.get("notify"),
+            alerts=call.data.get("alerts"),
+            reset_alerts="alerts" in call.data and call.data["alerts"] is None,
+        )
+
     hass.services.async_register(DOMAIN, SERVICE_RELOAD_RECIPES, reload_recipes)
+    hass.services.async_register(DOMAIN, SERVICE_CONFIGURE, configure_cook, schema=_CONFIGURE_SCHEMA)
     await _async_register_cards(hass)
     return True
 
