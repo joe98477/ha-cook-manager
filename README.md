@@ -222,8 +222,9 @@ stages cooks to the pull temperature and then rests for `rest_minutes`.
 
 Every finished cook is written to its own JSON file in `config/cook_manager/cooks/`, for example
 `20261121-1830_brisket.json`. The file holds the recipe, targets, weight, stages, every alert with
-its time, and the full curve: one row every 30 seconds of `[time, meat, grill]` in degrees Celsius,
-including the rest. Nothing else is needed: no InfluxDB, and the files are not affected by the
+its time, and the full curve: one row every 30 seconds of time, meat, grill, and the grill
+controller's target and output (fan percent for an iKamand), in degrees Celsius, including the
+rest. The `columns` entry names the columns. A twelve hour cook is about 50 KB. Nothing else is needed: no InfluxDB, and the files are not affected by the
 Home Assistant recorder purge. They are plain files, so they can be backed up, graphed or shared.
 
 Set `number.cook_1_weight` before starting if you know it; weight is stored with the record.

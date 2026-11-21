@@ -207,7 +207,7 @@ def test_round_trip():
     assert restored.samples == cook.samples
     assert restored.stage.id == cook.stage.id
     record = restored.record()
-    assert record["format"] == 1
+    assert record["format"] == 2
     assert len(record["samples"]) == len(cook.samples)
     assert record["samples"][0][1] == 20
 

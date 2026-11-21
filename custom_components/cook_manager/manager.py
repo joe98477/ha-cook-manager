@@ -392,6 +392,35 @@ class CookManager:
             unit = self.hass.config.units.temperature_unit
         return TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS)
 
+    def controller_reading(self, source: str | None) -> tuple[float | None, float | None] | None:
+        """(target in Celsius, output in percent) of a grill controller, for the cook record.
+
+        A built-in iKamand reports its fan output. A climate entity has no output figure, so
+        heating counts as 100 and idle or off as 0.
+        """
+        if not source:
+            return None
+        device = self.ikamand_for(source)
+        if device is not None:
+            if not device.online:
+                return (None, None)
+            return (device.target, device.fan)
+        state = self.hass.states.get(source)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return (None, None)
+        target: float | None = None
+        try:
+            target = TemperatureConverter.convert(
+                float(state.attributes.get("temperature")),
+                self.hass.config.units.temperature_unit,
+                UnitOfTemperature.CELSIUS,
+            )
+        except (TypeError, ValueError):
+            target = None
+        action = state.attributes.get("hvac_action")
+        output = 100.0 if action == "heating" else 0.0 if action in ("idle", "off") else None
+        return (target, output)
+
     def _labels(self, entity_ids: list[str]) -> dict[str, str]:
         labels: dict[str, str] = {}
         used: set[str] = set()
@@ -618,7 +647,9 @@ class CookManager:
             if cook is None or not cook.active:
                 continue
             any_active = True
-            events = cook.update(now, self.reading(slot.probe), self.reading(slot.grill_probe))
+            events = cook.update(
+                now, self.reading(slot.probe), self.reading(slot.grill_probe), self.controller_reading(slot.controller)
+            )
             if events:
                 await self._async_handle_events(slot, events)
         if any_active:
@@ -672,6 +703,12 @@ class CookManager:
                 ("grill_controller", slot.controller),
             )
         }
+        if slot.controller:
+            built_in = self.ikamand_for(slot.controller) is not None
+            record["controller"] = {
+                "kind": "ikamand" if built_in else "climate",
+                "output": "fan percent" if built_in else "heating as 100, idle or off as 0",
+            }
         started = datetime.fromtimestamp(cook.started_at)
         slug = re.sub(r"[^a-z0-9]+", "_", cook.name.lower()).strip("_") or "cook"
         filename: str | None = f"{started:%Y%m%d-%H%M}_{slug}.json"

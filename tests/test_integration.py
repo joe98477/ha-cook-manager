@@ -169,7 +169,10 @@ async def test_cook_end_to_end(hass: HomeAssistant) -> None:
     record_file = Path(hass.config.path("cook_manager/cooks")) / manager.history[0]["file"]
     record = json.loads(record_file.read_text(encoding="utf-8"))
     record_file.unlink()
-    assert record["format"] == 1
+    assert record["format"] == 2
+    assert record["columns"] == ["time", "meat", "grill", "controller_target", "controller_output"]
+    assert record["controller"]["kind"] == "climate"
+    assert len(record["samples"][0]) == 5
     assert record["sources"]["probe"]["entity_id"] == "sensor.probe_a"
     assert len(record["samples"]) >= 70
     assert "target_reached" in [event["type"] for event in record["events"]]

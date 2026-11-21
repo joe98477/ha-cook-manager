@@ -116,6 +116,8 @@ class Cook:
         self.max_meat: float | None = None
         self.meat_seen_at: float | None = None
         self.samples: list[Sample] = []
+        # Grill controller (target, output percent) at each sample; same length as samples.
+        self.controller_samples: list[tuple[float | None, float | None]] = []
 
         self.probe_lost = False
         self.stalled = False
@@ -207,6 +209,7 @@ class Cook:
         self.started_at = now
         self.finished_at = None
         self.samples = []
+        self.controller_samples = []
         self.start_meat = None
         self.max_meat = None
         self.meat_seen_at = None
@@ -253,7 +256,13 @@ class Cook:
 
     # ----- the tick -------------------------------------------------------
 
-    def update(self, now: float, meat: float | None, grill: float | None) -> list[CookEvent]:
+    def update(
+        self,
+        now: float,
+        meat: float | None,
+        grill: float | None,
+        controller: tuple[float | None, float | None] | None = None,
+    ) -> list[CookEvent]:
         """Feed the latest readings; returns what happened."""
         self.grill = grill
         if meat is not None:
@@ -267,6 +276,7 @@ class Cook:
         sampled = False
         if not self.samples or now - self.samples[-1][0] >= SAMPLE_SECONDS:
             self.samples.append((now, meat, grill))
+            self.controller_samples.append(controller or (None, None))
             self._trim_samples()
             sampled = True
 
@@ -473,6 +483,10 @@ class Cook:
         if len(self.samples) <= MAX_SAMPLES:
             return
         half = len(self.samples) // 2
+        if len(self.controller_samples) == len(self.samples):
+            self.controller_samples = self.controller_samples[:half:2] + self.controller_samples[half:]
+        else:
+            self.controller_samples = []
         self.samples = self.samples[:half:2] + self.samples[half:]
 
     # ----- persistence ----------------------------------------------------
@@ -503,18 +517,25 @@ class Cook:
     def record(self) -> dict[str, Any]:
         """The whole cook: details, stages, events and the full curve.
 
-        `samples` rows are [unix seconds, meat C, grill C]; either reading may be null.
+        `samples` rows follow `columns`: unix seconds, meat C, grill C, then the grill
+        controller's target C and output percent. Any value may be null.
         The rest stage is included, so the rise after pulling (carryover) is on record.
+        Format 1 had the first three columns only.
         """
+        aligned = len(self.controller_samples) == len(self.samples)
         return {
-            "format": 1,
+            "format": 2,
             "units": {"temperature": "C", "weight": "kg", "time": "unix seconds"},
             **self.summary(),
             "pull_temp": self.pull_temp,
             "stages": [stage.as_dict() for stage in self.stages],
             "events": list(self.log),
             "sample_seconds": SAMPLE_SECONDS,
-            "samples": [[round(s[0]), s[1], s[2]] for s in self.samples],
+            "columns": ["time", "meat", "grill", "controller_target", "controller_output"],
+            "samples": [
+                [round(s[0]), s[1], s[2], *(self.controller_samples[i] if aligned else (None, None))]
+                for i, s in enumerate(self.samples)
+            ],
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -542,6 +563,7 @@ class Cook:
             "max_meat": self.max_meat,
             "meat_seen_at": self.meat_seen_at,
             "samples": [list(sample) for sample in self.samples],
+            "controller_samples": [list(sample) for sample in self.controller_samples],
             "grill_ready": self._grill_ready,
         }
 
@@ -579,6 +601,8 @@ class Cook:
         cook.max_meat = data.get("max_meat")
         cook.meat_seen_at = data.get("meat_seen_at")
         cook.samples = [(s[0], s[1], s[2]) for s in data.get("samples", [])]
+        stored = [(s[0], s[1]) for s in data.get("controller_samples", [])]
+        cook.controller_samples = stored if len(stored) == len(cook.samples) else [(None, None)] * len(cook.samples)
         cook.log = list(data.get("log", []))
         cook._grill_ready = bool(data.get("grill_ready", False))
         return cook
