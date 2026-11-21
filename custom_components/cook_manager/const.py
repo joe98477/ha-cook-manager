@@ -9,9 +9,11 @@ DOMAIN = "cook_manager"
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.CLIMATE,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
+    Platform.SWITCH,
     Platform.TEXT,
 ]
 
@@ -22,6 +24,11 @@ CONF_NOTIFY = "notify_services"
 CONF_IGNORED = "ignored_readings"
 CONF_PRE_ALERT = "pre_alert"
 CONF_GRILL_TOLERANCE = "grill_tolerance"
+CONF_IKAMAND = "ikamand_hosts"
+
+IKAMAND_PREFIX = "ikamand:"
+IKAMAND_CHANNELS = ("pit", "p1", "p2", "p3")
+IKAMAND_POLL_SECONDS = 5
 
 DEFAULT_SLOTS = 4
 DEFAULT_IGNORED = "-1"

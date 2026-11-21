@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -21,6 +22,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -32,6 +35,7 @@ from .const import (
     COOK_RECORD_DIR,
     CONF_GRILL_TOLERANCE,
     CONF_IGNORED,
+    CONF_IKAMAND,
     CONF_NOTIFY,
     CONF_PRE_ALERT,
     CONF_PROBES,
@@ -44,6 +48,9 @@ from .const import (
     DEFAULT_TARGET,
     EVENT_COOK,
     HISTORY_LIMIT,
+    IKAMAND_CHANNELS,
+    IKAMAND_POLL_SECONDS,
+    IKAMAND_PREFIX,
     OPTION_MANUAL,
     OPTION_NONE,
     OPTION_STANDARD,
@@ -53,8 +60,9 @@ from .const import (
     TICK_SECONDS,
     USER_RECIPE_DIR,
 )
-from .engine import Cook, CookEvent, Recipe, RecipeError, build_stages, parse_recipe
+from .engine import Cook, CookEvent, CookStatus, Recipe, RecipeError, build_stages, parse_recipe
 from .engine.cook import EVENT_DONE, EVENT_STAGE, EVENT_STOPPED
+from .ikamand import Ikamand
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,6 +113,16 @@ def parse_ignored(text: str | None) -> list[float]:
     return values
 
 
+def parse_hosts(text: str | None) -> list[str]:
+    """'192.168.1.20, http://grill.local/' -> ['192.168.1.20', 'grill.local']."""
+    hosts: list[str] = []
+    for part in re.split(r"[,;\s]+", text or ""):
+        host = part.strip().removeprefix("http://").strip("/")
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
 def load_recipe_files(builtin: Path, user_dir: Path) -> tuple[dict[str, Recipe], list[str]]:
     """Read built-in and user recipes. Runs in the executor."""
     recipes: dict[str, Recipe] = {}
@@ -149,6 +167,22 @@ class CookManager:
         self.grill_tolerance = float(options.get(CONF_GRILL_TOLERANCE, DEFAULT_GRILL_TOLERANCE))
         self._ignored = parse_ignored(options.get(CONF_IGNORED, DEFAULT_IGNORED))
 
+        # iKamands that Cook Manager talks to itself. Their pit and food probes join the
+        # probe pool and each one is a grill controller, under ids like "ikamand:<host>:pit".
+        session = async_get_clientsession(hass)
+        self.ikamands: dict[str, Ikamand] = {
+            host: Ikamand(session, host) for host in parse_hosts(options.get(CONF_IKAMAND))
+        }
+        self.probe_sources: list[str] = [
+            *self.probe_entities,
+            *(f"{IKAMAND_PREFIX}{host}:{channel}" for host in self.ikamands for channel in IKAMAND_CHANNELS),
+        ]
+        self.controller_sources: list[str] = [
+            *self.controller_entities,
+            *(f"{IKAMAND_PREFIX}{host}" for host in self.ikamands),
+        ]
+        self._polling = False
+
         self.slots: list[Slot] = []
         self.recipes: dict[str, Recipe] = {}
         self.history: list[dict[str, Any]] = []
@@ -171,6 +205,20 @@ class CookManager:
         self._unsubs.append(
             async_track_time_interval(self.hass, self._async_tick, timedelta(seconds=TICK_SECONDS))
         )
+        if self.ikamands:
+            # A cook that was running keeps its grill target on the controller.
+            for slot in self.slots:
+                device = self.ikamand_for(slot.controller)
+                if device is not None and slot.cook is not None and slot.cook.status == CookStatus.COOKING:
+                    device.want(slot.grill_target)
+            self._unsubs.append(
+                async_track_time_interval(
+                    self.hass, self._async_poll_ikamands, timedelta(seconds=IKAMAND_POLL_SECONDS)
+                )
+            )
+            self.entry.async_create_background_task(
+                self.hass, self._async_poll_ikamands(), "cook_manager_ikamand_first_poll"
+            )
 
     async def async_unload(self) -> None:
         for unsub in self._unsubs:
@@ -210,6 +258,10 @@ class CookManager:
     def _notify_entities(self) -> None:
         async_dispatcher_send(self.hass, SIGNAL_UPDATE)
 
+    @callback
+    def async_refresh_entities(self) -> None:
+        self._notify_entities()
+
     # ----- recipes --------------------------------------------------------
 
     async def async_reload_recipes(self) -> None:
@@ -243,10 +295,63 @@ class CookManager:
             celsius, UnitOfTemperature.CELSIUS, self.hass.config.units.temperature_unit
         )
 
+    def ikamand_for(self, source: str | None) -> Ikamand | None:
+        """The iKamand behind a built-in probe or controller id."""
+        if not source or not source.startswith(IKAMAND_PREFIX):
+            return None
+        host = source[len(IKAMAND_PREFIX) :]
+        if host not in self.ikamands:
+            host = host.rsplit(":", 1)[0]
+        return self.ikamands.get(host)
+
+    def _ikamand_label(self, source: str) -> str:
+        rest = source[len(IKAMAND_PREFIX) :]
+        channel = "" if rest in self.ikamands else rest.rsplit(":", 1)[-1]
+        host = rest if not channel else rest.rsplit(":", 1)[0]
+        label = "iKamand" if len(self.ikamands) <= 1 else f"iKamand {host}"
+        if channel == "pit":
+            return f"{label} pit"
+        if channel:
+            return f"{label} probe {channel[1:]}"
+        return label
+
+    def resolve_source(self, value: str | None) -> str | None:
+        """Accept one of Cook Manager's own iKamand entities in place of a built-in id."""
+        if not value or value.startswith(IKAMAND_PREFIX) or not self.ikamands:
+            return value
+        entry = er.async_get(self.hass).async_get(value)
+        if entry is None or entry.config_entry_id != self.entry.entry_id:
+            return value
+        for host in self.ikamands:
+            prefix = f"{self.entry.entry_id}_ikamand_{host}_"
+            if entry.unique_id.startswith(prefix):
+                key = entry.unique_id[len(prefix) :]
+                if key == "climate":
+                    return f"{IKAMAND_PREFIX}{host}"
+                if key in IKAMAND_CHANNELS:
+                    return f"{IKAMAND_PREFIX}{host}:{key}"
+        return value
+
+    async def _async_poll_ikamands(self, _now: datetime | None = None) -> None:
+        if self._polling:
+            return
+        self._polling = True
+        try:
+            await asyncio.gather(*(device.async_update() for device in self.ikamands.values()))
+        finally:
+            self._polling = False
+        self._notify_entities()
+
     def reading(self, entity_id: str | None) -> float | None:
         """Current reading of a probe in Celsius, None when there is no usable reading."""
         if not entity_id:
             return None
+        if entity_id.startswith(IKAMAND_PREFIX):
+            device = self.ikamand_for(entity_id)
+            channel = entity_id.rsplit(":", 1)[-1]
+            if device is None or channel not in IKAMAND_CHANNELS:
+                return None
+            return device.temperature(channel)
         state = self.hass.states.get(entity_id)
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return None
@@ -270,8 +375,11 @@ class CookManager:
         labels: dict[str, str] = {}
         used: set[str] = set()
         for entity_id in entity_ids:
-            state = self.hass.states.get(entity_id)
-            label = state.name if state is not None else entity_id
+            if entity_id.startswith(IKAMAND_PREFIX):
+                label = self._ikamand_label(entity_id)
+            else:
+                state = self.hass.states.get(entity_id)
+                label = state.name if state is not None else entity_id
             if label in used or label == OPTION_NONE:
                 label = f"{label} ({entity_id})"
             used.add(label)
@@ -279,19 +387,19 @@ class CookManager:
         return labels
 
     def probe_labels(self) -> dict[str, str]:
-        return self._labels(self.probe_entities)
+        return self._labels(self.probe_sources)
 
     def controller_labels(self) -> dict[str, str]:
-        return self._labels(self.controller_entities)
+        return self._labels(self.controller_sources)
 
     def online_probes(self) -> list[str]:
-        return [entity_id for entity_id in self.probe_entities if self.reading(entity_id) is not None]
+        return [entity_id for entity_id in self.probe_sources if self.reading(entity_id) is not None]
 
     def probe_options(self, current: str | None) -> list[str]:
         """Choices for a probe select: None, every probe with a reading, and the current one."""
         labels = self.probe_labels()
         options = [OPTION_NONE]
-        for entity_id in self.probe_entities:
+        for entity_id in self.probe_sources:
             if entity_id == current or self.reading(entity_id) is not None:
                 options.append(labels[entity_id])
         if current and current not in labels:
@@ -305,7 +413,7 @@ class CookManager:
         for entity_id, known in labels.items():
             if known == label:
                 return entity_id
-        return label if "." in label else None
+        return label if "." in label or label.startswith(IKAMAND_PREFIX) else None
 
     # ----- slot settings --------------------------------------------------
 
@@ -499,9 +607,10 @@ class CookManager:
                 slot.grill_target = float(event.data["grill_temp"])
                 if slot.controller:
                     await self._async_set_controller_temp(slot, slot.grill_target)
-            if cook is not None and (
-                event.type == EVENT_DONE or (event.type == EVENT_STOPPED and event.data.get("was_active"))
-            ):
+            ended = event.type == EVENT_DONE or (event.type == EVENT_STOPPED and event.data.get("was_active"))
+            if ended or (event.type == EVENT_STAGE and event.data.get("rest")):
+                await self._async_release_controller(slot)
+            if cook is not None and ended:
                 await self._async_record_cook(slot, cook)
             if event.notify:
                 await self._async_notify(event.message)
@@ -551,6 +660,10 @@ class CookManager:
         """Hand the grill target to the controller. The controller does its own regulation."""
         if not slot.controller:
             return
+        device = self.ikamand_for(slot.controller)
+        if device is not None:
+            await device.async_set_target(celsius)
+            return
         value = round(self._display_temp(celsius))
         try:
             await self.hass.services.async_call(
@@ -561,6 +674,24 @@ class CookManager:
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Could not set %s to %s: %s", slot.controller, value, err)
+
+    async def _async_release_controller(self, slot: Slot) -> None:
+        """The meat is off: stop a built-in controller unless another cook still needs it.
+
+        Controllers that are climate entities are left alone; they belong to another integration.
+        """
+        device = self.ikamand_for(slot.controller)
+        if device is None or device.wanted_target is None:
+            return
+        for other in self.slots:
+            if (
+                other is not slot
+                and other.controller == slot.controller
+                and other.cook is not None
+                and other.cook.status == CookStatus.COOKING
+            ):
+                return
+        await device.async_stop()
 
     # ----- summaries for the hub entities ---------------------------------
 

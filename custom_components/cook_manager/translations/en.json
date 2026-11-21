@@ -11,16 +11,18 @@
           "notify_services": "Notify",
           "ignored_readings": "Readings that mean no probe",
           "pre_alert": "Approaching alert",
-          "grill_tolerance": "Grill band"
+          "grill_tolerance": "Grill band",
+          "ikamand_hosts": "iKamand address"
         },
         "data_description": {
           "slots": "How many cooks can run at once.",
           "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
-          "grill_controllers": "Optional. Climate entities that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
+          "grill_controllers": "Optional. Climate entities from other integrations that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
           "notify_services": "Notify services that receive cook alerts, for example a phone.",
           "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
           "pre_alert": "Alert this many degrees before a meat target.",
-          "grill_tolerance": "Alert when the grill is this far above or below its target."
+          "grill_tolerance": "Alert when the grill is this far above or below its target.",
+          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas."
         }
       }
     },
@@ -39,16 +41,18 @@
           "notify_services": "Notify",
           "ignored_readings": "Readings that mean no probe",
           "pre_alert": "Approaching alert",
-          "grill_tolerance": "Grill band"
+          "grill_tolerance": "Grill band",
+          "ikamand_hosts": "iKamand address"
         },
         "data_description": {
           "slots": "How many cooks can run at once.",
           "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
-          "grill_controllers": "Optional. Climate entities that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
+          "grill_controllers": "Optional. Climate entities from other integrations that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
           "notify_services": "Notify services that receive cook alerts, for example a phone.",
           "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
           "pre_alert": "Alert this many degrees before a meat target.",
-          "grill_tolerance": "Alert when the grill is this far above or below its target."
+          "grill_tolerance": "Alert when the grill is this far above or below its target.",
+          "ikamand_hosts": "Optional. IP address of a Kamado Joe iKamand on your network, for example 192.168.1.50. Cook Manager then talks to it directly: its pit and food probes join the probes, and it becomes a grill controller. Separate several with commas."
         }
       }
     }
@@ -86,6 +90,21 @@
       },
       "probes_online": {
         "name": "Probes online"
+      },
+      "ikamand_pit": {
+        "name": "Pit temperature"
+      },
+      "ikamand_p1": {
+        "name": "Probe 1"
+      },
+      "ikamand_p2": {
+        "name": "Probe 2"
+      },
+      "ikamand_p3": {
+        "name": "Probe 3"
+      },
+      "ikamand_fan": {
+        "name": "Fan"
       }
     },
     "binary_sensor": {
@@ -122,6 +141,9 @@
       },
       "weight": {
         "name": "Weight"
+      },
+      "ikamand_boost_minutes": {
+        "name": "Fire it up duration"
       }
     },
     "button": {
@@ -138,6 +160,11 @@
     "text": {
       "name": {
         "name": "Name"
+      }
+    },
+    "switch": {
+      "ikamand_boost": {
+        "name": "Fire it up"
       }
     }
   },
@@ -156,15 +183,15 @@
         },
         "probe": {
           "name": "Probe",
-          "description": "Meat probe entity."
+          "description": "Meat probe: a temperature entity."
         },
         "grill_probe": {
           "name": "Grill probe",
-          "description": "Grill temperature entity."
+          "description": "Grill probe: a temperature entity."
         },
         "grill_controller": {
           "name": "Grill controller",
-          "description": "Climate entity that is handed the grill target."
+          "description": "Climate entity that is handed the grill target, for example the iKamand."
         },
         "recipe": {
           "name": "Recipe",

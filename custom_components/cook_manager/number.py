@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.const import UnitOfMass, UnitOfTemperature
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode, RestoreNumber
+from homeassistant.const import UnitOfMass, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import CookManagerConfigEntry
-from .entity import SlotEntity
+from .entity import IkamandEntity, SlotEntity
+from .ikamand import Ikamand
 from .manager import CookManager, Slot
 
 
@@ -23,7 +24,39 @@ async def async_setup_entry(
         entities.extend(
             [TargetNumber(manager, slot), GrillTargetNumber(manager, slot), WeightNumber(manager, slot)]
         )
+    entities.extend(IkamandBoostMinutes(manager, device) for device in manager.ikamands.values())
     async_add_entities(entities)
+
+
+class IkamandBoostMinutes(IkamandEntity, RestoreNumber):
+    """How long Fire it up runs the fan flat out."""
+
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_native_min_value = 1.0
+    _attr_native_max_value = 30.0
+    _attr_native_step = 1.0
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, manager: CookManager, device: Ikamand) -> None:
+        super().__init__(manager, device, "boost_minutes")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_number_data()
+        if last is not None and last.native_value is not None:
+            self.device.boost_minutes = int(last.native_value)
+
+    @property
+    def native_value(self) -> float:
+        return self.device.boost_minutes
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.device.boost_minutes = int(value)
+        self.async_write_ha_state()
 
 
 class _TemperatureNumber(SlotEntity, NumberEntity):

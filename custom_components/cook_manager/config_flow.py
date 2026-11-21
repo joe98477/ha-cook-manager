@@ -14,6 +14,7 @@ from .const import (
     CONF_CONTROLLERS,
     CONF_GRILL_TOLERANCE,
     CONF_IGNORED,
+    CONF_IKAMAND,
     CONF_NOTIFY,
     CONF_PRE_ALERT,
     CONF_PROBES,
@@ -52,6 +53,7 @@ def _schema(hass: HomeAssistant, current: dict[str, Any]) -> vol.Schema:
             vol.Optional(CONF_CONTROLLERS, default=current.get(CONF_CONTROLLERS, [])): selector.EntitySelector(
                 selector.EntitySelectorConfig(multiple=True, domain="climate")
             ),
+            vol.Optional(CONF_IKAMAND, default=current.get(CONF_IKAMAND, "")): selector.TextSelector(),
             vol.Optional(CONF_NOTIFY, default=current.get(CONF_NOTIFY, [])): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=notify_services,
@@ -86,6 +88,7 @@ def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
     data.setdefault(CONF_CONTROLLERS, [])
     data.setdefault(CONF_NOTIFY, [])
     data.setdefault(CONF_IGNORED, "")
+    data[CONF_IKAMAND] = (data.get(CONF_IKAMAND) or "").strip()
     return data
 
 

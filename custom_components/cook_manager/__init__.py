@@ -41,9 +41,9 @@ _SLOT_SCHEMA = vol.Schema({vol.Required(ATTR_SLOT): vol.All(vol.Coerce(int), vol
 _START_SCHEMA = _SLOT_SCHEMA.extend(
     {
         vol.Optional(ATTR_NAME): cv.string,
-        vol.Optional(ATTR_PROBE): vol.Any(None, cv.entity_id),
-        vol.Optional(ATTR_GRILL_PROBE): vol.Any(None, cv.entity_id),
-        vol.Optional(ATTR_CONTROLLER): vol.Any(None, cv.entity_id),
+        vol.Optional(ATTR_PROBE): vol.Any(None, cv.string),
+        vol.Optional(ATTR_GRILL_PROBE): vol.Any(None, cv.string),
+        vol.Optional(ATTR_CONTROLLER): vol.Any(None, cv.string),
         vol.Optional(ATTR_RECIPE): vol.Any(None, cv.string),
         vol.Optional(ATTR_DONENESS): cv.string,
         vol.Optional(ATTR_TARGET): vol.Coerce(float),
@@ -70,11 +70,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if ATTR_NAME in data:
             manager.set_name(slot, data[ATTR_NAME])
         if ATTR_PROBE in data:
-            manager.set_probe(slot, data[ATTR_PROBE])
+            manager.set_probe(slot, manager.resolve_source(data[ATTR_PROBE]))
         if ATTR_GRILL_PROBE in data:
-            manager.set_grill_probe(slot, data[ATTR_GRILL_PROBE])
+            manager.set_grill_probe(slot, manager.resolve_source(data[ATTR_GRILL_PROBE]))
         if ATTR_CONTROLLER in data:
-            await manager.async_set_controller(slot, data[ATTR_CONTROLLER])
+            await manager.async_set_controller(slot, manager.resolve_source(data[ATTR_CONTROLLER]))
         if ATTR_RECIPE in data:
             recipe = data[ATTR_RECIPE]
             if recipe in (None, "", OPTION_MANUAL, OPTION_MANUAL.lower()):

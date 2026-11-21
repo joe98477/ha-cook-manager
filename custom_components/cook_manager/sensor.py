@@ -14,7 +14,9 @@ from homeassistant.util import dt as dt_util
 
 from . import CookManagerConfigEntry
 from .engine import CookStatus
-from .entity import HubEntity, SlotEntity
+from .const import IKAMAND_CHANNELS
+from .entity import HubEntity, IkamandEntity, SlotEntity
+from .ikamand import Ikamand
 from .manager import CookManager, Slot
 
 
@@ -37,7 +39,39 @@ async def async_setup_entry(
                 StageSensor(manager, slot),
             ]
         )
+    for device in manager.ikamands.values():
+        entities.extend(IkamandTemperatureSensor(manager, device, channel) for channel in IKAMAND_CHANNELS)
+        entities.append(IkamandFanSensor(manager, device))
     async_add_entities(entities)
+
+
+class IkamandTemperatureSensor(IkamandEntity, SensorEntity):
+    """Pit or food probe of an iKamand. Unknown while no probe is plugged in."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, manager: CookManager, device: Ikamand, channel: str) -> None:
+        super().__init__(manager, device, channel)
+        self._channel = channel
+
+    @property
+    def native_value(self) -> float | None:
+        return self.device.temperature(self._channel)
+
+
+class IkamandFanSensor(IkamandEntity, SensorEntity):
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager: CookManager, device: Ikamand) -> None:
+        super().__init__(manager, device, "fan")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.device.fan
 
 
 def _iso(timestamp: float | None) -> str | None:

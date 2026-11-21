@@ -8,6 +8,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN, SIGNAL_UPDATE
+from .ikamand import Ikamand
 from .manager import CookManager, Slot
 
 
@@ -58,3 +59,23 @@ class SlotEntity(_CookManagerEntity):
             model="Cook slot",
             entry_type=DeviceEntryType.SERVICE,
         )
+
+
+class IkamandEntity(_CookManagerEntity):
+    """Entity on an iKamand that Cook Manager talks to directly."""
+
+    def __init__(self, manager: CookManager, device: Ikamand, key: str) -> None:
+        super().__init__(manager)
+        self.device = device
+        self._attr_translation_key = f"ikamand_{key}"
+        self._attr_unique_id = f"{manager.entry.entry_id}_ikamand_{device.host}_{key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"ikamand_{device.host}")},
+            name="iKamand",
+            manufacturer="Kamado Joe",
+            model="iKamand",
+        )
+
+    @property
+    def available(self) -> bool:
+        return self.device.online
