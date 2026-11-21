@@ -63,6 +63,7 @@ For each slot (`Cook 1`, `Cook 2`, …):
 | `select.cook_1_probe`, `select.cook_1_grill_probe`, `select.cook_1_grill_controller` | What the slot uses. |
 | `select.cook_1_recipe`, `select.cook_1_doneness` | Recipe and doneness; choosing them fills in the targets. |
 | `number.cook_1_target`, `number.cook_1_grill_target` | Targets; can be changed during a cook. |
+| `number.cook_1_weight` | Weight of the meat, optional; stored with the cook record. |
 | `text.cook_1_name` | Name used in alerts. |
 | `button.cook_1_start`, `button.cook_1_stop`, `button.cook_1_next_stage` | Controls. |
 
@@ -115,6 +116,16 @@ stages:
 A stage ends on exactly one of `meat_temp` (a number, `target`, or `pull` for target minus
 carryover), `grill_temp`, `minutes`, or `manual: true` (waits for Next stage). A recipe without
 stages cooks to the pull temperature and then rests for `rest_minutes`.
+
+## Cook records
+
+Every finished cook is written to its own JSON file in `config/cook_manager/cooks/`, for example
+`20261121-1830_brisket.json`. The file holds the recipe, targets, weight, stages, every alert with
+its time, and the full curve: one row every 30 seconds of `[time, meat, grill]` in degrees Celsius,
+including the rest. Nothing else is needed: no InfluxDB, and the files are not affected by the
+Home Assistant recorder purge. They are plain files, so they can be backed up, graphed or shared.
+
+Set `number.cook_1_weight` before starting if you know it; weight is stored with the record.
 
 ## Food safety
 

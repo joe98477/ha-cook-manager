@@ -1,5 +1,7 @@
 """Home Assistant side: setup screens, entities, a cook end to end."""
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
@@ -117,6 +119,7 @@ async def test_cook_end_to_end(hass: HomeAssistant) -> None:
                 "grill_controller": "climate.pit",
                 "recipe": "beef_roast",
                 "doneness": "medium",
+                "weight": 2.4,
             },
             blocking=True,
         )
@@ -162,6 +165,14 @@ async def test_cook_end_to_end(hass: HomeAssistant) -> None:
     assert any("done" in message for message in messages)
     assert len(manager.history) == 1
     assert manager.history[0]["recipe_id"] == "beef_roast"
+    assert manager.history[0]["weight_kg"] == 2.4
+    record_file = Path(hass.config.path("cook_manager/cooks")) / manager.history[0]["file"]
+    record = json.loads(record_file.read_text(encoding="utf-8"))
+    record_file.unlink()
+    assert record["format"] == 1
+    assert record["sources"]["probe"]["entity_id"] == "sensor.probe_a"
+    assert len(record["samples"]) >= 70
+    assert "target_reached" in [event["type"] for event in record["events"]]
 
 
 async def test_cook_survives_reload(hass: HomeAssistant) -> None:

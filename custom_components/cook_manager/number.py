@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import UnitOfMass, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -20,7 +20,9 @@ async def async_setup_entry(
     manager = entry.runtime_data
     entities: list[NumberEntity] = []
     for slot in manager.slots:
-        entities.extend([TargetNumber(manager, slot), GrillTargetNumber(manager, slot)])
+        entities.extend(
+            [TargetNumber(manager, slot), GrillTargetNumber(manager, slot), WeightNumber(manager, slot)]
+        )
     async_add_entities(entities)
 
 
@@ -62,3 +64,24 @@ class GrillTargetNumber(_TemperatureNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         await self.manager.async_set_grill_target(self.slot, value)
+
+
+class WeightNumber(SlotEntity, NumberEntity):
+    """Weight of the meat. Optional; 0 means not given. Stored with the cook record."""
+
+    _attr_device_class = NumberDeviceClass.WEIGHT
+    _attr_native_unit_of_measurement = UnitOfMass.KILOGRAMS
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 30.0
+    _attr_native_step = 0.1
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, manager: CookManager, slot: Slot) -> None:
+        super().__init__(manager, slot, "weight")
+
+    @property
+    def native_value(self) -> float:
+        return self.slot.weight_kg
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.manager.set_weight(self.slot, value)

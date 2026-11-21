@@ -34,6 +34,7 @@ ATTR_RECIPE = "recipe"
 ATTR_DONENESS = "doneness"
 ATTR_TARGET = "target"
 ATTR_GRILL_TARGET = "grill_target"
+ATTR_WEIGHT = "weight"
 
 _SLOT_SCHEMA = vol.Schema({vol.Required(ATTR_SLOT): vol.All(vol.Coerce(int), vol.Range(min=1))})
 
@@ -47,6 +48,7 @@ _START_SCHEMA = _SLOT_SCHEMA.extend(
         vol.Optional(ATTR_DONENESS): cv.string,
         vol.Optional(ATTR_TARGET): vol.Coerce(float),
         vol.Optional(ATTR_GRILL_TARGET): vol.Coerce(float),
+        vol.Optional(ATTR_WEIGHT): vol.All(vol.Coerce(float), vol.Range(min=0)),
     }
 )
 
@@ -95,6 +97,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             manager.set_target(slot, data[ATTR_TARGET])
         if ATTR_GRILL_TARGET in data:
             await manager.async_set_grill_target(slot, data[ATTR_GRILL_TARGET])
+        if ATTR_WEIGHT in data:
+            manager.set_weight(slot, data[ATTR_WEIGHT])
         await manager.async_start(slot)
 
     async def stop_cook(call: ServiceCall) -> None:

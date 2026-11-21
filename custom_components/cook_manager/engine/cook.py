@@ -81,6 +81,7 @@ class Cook:
         recipe_name: str | None = None,
         doneness: str | None = None,
         expects_meat: bool = True,
+        weight_kg: float | None = None,
         pre_alert: float = 5.0,
         grill_tolerance: float = 15.0,
         display_temp: Callable[[float], float] = _identity,
@@ -98,6 +99,8 @@ class Cook:
         self.recipe_name = recipe_name
         self.doneness = doneness
         self.expects_meat = expects_meat
+        self.weight_kg = weight_kg
+        self.log: list[dict[str, Any]] = []
         self.pre_alert = pre_alert
         self.grill_tolerance = grill_tolerance
 
@@ -474,9 +477,13 @@ class Cook:
 
     # ----- persistence ----------------------------------------------------
 
+    def log_events(self, now: float, events: list[CookEvent]) -> None:
+        """Keep what happened and when, for the cook record."""
+        for event in events:
+            self.log.append({"t": round(now), "type": event.type, "message": event.message})
+
     def summary(self) -> dict[str, Any]:
-        """Record of a finished cook, for the history."""
-        step = max(len(self.samples) // 240, 1)
+        """Details of a finished cook, without the curve."""
         return {
             "name": self.name,
             "recipe_id": self.recipe_id,
@@ -489,8 +496,25 @@ class Cook:
             "finished_at": self.finished_at,
             "start_meat": self.start_meat,
             "max_meat": self.max_meat,
+            "weight_kg": self.weight_kg,
             "completed": self.status == CookStatus.DONE,
-            "curve": [[round(s[0]), s[1], s[2]] for s in self.samples[::step]],
+        }
+
+    def record(self) -> dict[str, Any]:
+        """The whole cook: details, stages, events and the full curve.
+
+        `samples` rows are [unix seconds, meat C, grill C]; either reading may be null.
+        The rest stage is included, so the rise after pulling (carryover) is on record.
+        """
+        return {
+            "format": 1,
+            "units": {"temperature": "C", "weight": "kg", "time": "unix seconds"},
+            **self.summary(),
+            "pull_temp": self.pull_temp,
+            "stages": [stage.as_dict() for stage in self.stages],
+            "events": list(self.log),
+            "sample_seconds": SAMPLE_SECONDS,
+            "samples": [[round(s[0]), s[1], s[2]] for s in self.samples],
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -504,6 +528,8 @@ class Cook:
             "recipe_name": self.recipe_name,
             "doneness": self.doneness,
             "expects_meat": self.expects_meat,
+            "weight_kg": self.weight_kg,
+            "log": list(self.log),
             "pre_alert": self.pre_alert,
             "grill_tolerance": self.grill_tolerance,
             "status": self.status.value,
@@ -539,6 +565,7 @@ class Cook:
             recipe_name=data.get("recipe_name"),
             doneness=data.get("doneness"),
             expects_meat=data.get("expects_meat", True),
+            weight_kg=data.get("weight_kg"),
             pre_alert=data.get("pre_alert", 5.0),
             grill_tolerance=data.get("grill_tolerance", 15.0),
         )
@@ -552,5 +579,6 @@ class Cook:
         cook.max_meat = data.get("max_meat")
         cook.meat_seen_at = data.get("meat_seen_at")
         cook.samples = [(s[0], s[1], s[2]) for s in data.get("samples", [])]
+        cook.log = list(data.get("log", []))
         cook._grill_ready = bool(data.get("grill_ready", False))
         return cook

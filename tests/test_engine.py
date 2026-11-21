@@ -206,7 +206,10 @@ def test_round_trip():
     assert restored.status == cook.status
     assert restored.samples == cook.samples
     assert restored.stage.id == cook.stage.id
-    assert restored.summary()["curve"]
+    record = restored.record()
+    assert record["format"] == 1
+    assert len(record["samples"]) == len(cook.samples)
+    assert record["samples"][0][1] == 20
 
 
 def test_messages_use_display_unit():

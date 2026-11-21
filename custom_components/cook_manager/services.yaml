@@ -56,6 +56,15 @@ start_cook:
           max: 400
           step: 5
           mode: box
+    weight:
+      example: 2.5
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.1
+          mode: box
+          unit_of_measurement: kg
 
 stop_cook:
   fields:

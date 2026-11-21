@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -27,6 +29,7 @@ from homeassistant.util.yaml import load_yaml
 
 from .const import (
     CONF_CONTROLLERS,
+    COOK_RECORD_DIR,
     CONF_GRILL_TOLERANCE,
     CONF_IGNORED,
     CONF_NOTIFY,
@@ -72,6 +75,7 @@ class Slot:
     doneness_id: str | None = None
     target: float = DEFAULT_TARGET
     grill_target: float = DEFAULT_GRILL_TARGET
+    weight_kg: float = 0.0
     cook: Cook | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -85,6 +89,7 @@ class Slot:
             "doneness_id": self.doneness_id,
             "target": self.target,
             "grill_target": self.grill_target,
+            "weight_kg": self.weight_kg,
             "cook": self.cook.as_dict() if self.cook else None,
         }
 
@@ -122,6 +127,11 @@ def load_recipe_files(builtin: Path, user_dir: Path) -> tuple[dict[str, Recipe],
                 continue
             recipes[recipe.id] = recipe
     return recipes, problems
+
+
+def _write_record(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, separators=(",", ":")), encoding="utf-8")
 
 
 class CookManager:
@@ -180,6 +190,7 @@ class CookManager:
         slot.doneness_id = data.get("doneness_id")
         slot.target = float(data.get("target", DEFAULT_TARGET))
         slot.grill_target = float(data.get("grill_target", DEFAULT_GRILL_TARGET))
+        slot.weight_kg = float(data.get("weight_kg", 0.0))
         if data.get("cook"):
             try:
                 slot.cook = Cook.from_dict(
@@ -353,6 +364,12 @@ class CookManager:
             self.set_target(slot, target)
         self._changed()
 
+    def set_weight(self, slot: Slot, weight_kg: float) -> None:
+        slot.weight_kg = weight_kg
+        if slot.cook is not None and slot.cook.active:
+            slot.cook.weight_kg = weight_kg or None
+        self._changed()
+
     def set_target(self, slot: Slot, target: float) -> None:
         slot.target = target
         if slot.cook is not None and slot.cook.active:
@@ -415,6 +432,7 @@ class CookManager:
             recipe_name=recipe.name if recipe else None,
             doneness=self.doneness_label(slot) if recipe and recipe.doneness else None,
             expects_meat=slot.probe is not None,
+            weight_kg=slot.weight_kg or None,
             pre_alert=self.pre_alert,
             grill_tolerance=self.grill_tolerance,
             display_temp=self._display_temp,
@@ -464,6 +482,8 @@ class CookManager:
 
     async def _async_handle_events(self, slot: Slot, events: list[CookEvent]) -> None:
         cook = slot.cook
+        if cook is not None:
+            cook.log_events(time.time(), events)
         for event in events:
             self.hass.bus.async_fire(
                 EVENT_COOK,
@@ -482,16 +502,36 @@ class CookManager:
             if cook is not None and (
                 event.type == EVENT_DONE or (event.type == EVENT_STOPPED and event.data.get("was_active"))
             ):
-                self._record_history(cook)
+                await self._async_record_cook(slot, cook)
             if event.notify:
                 await self._async_notify(event.message)
 
-    def _record_history(self, cook: Cook) -> None:
+    async def _async_record_cook(self, slot: Slot, cook: Cook) -> None:
+        """Write the finished cook to its own file and add it to the history index."""
         if cook.started_at is None or cook.finished_at is None:
             return
         if cook.finished_at - cook.started_at < _MIN_HISTORY_SECONDS:
             return
-        self.history.insert(0, cook.summary())
+        labels = {**self.probe_labels(), **self.controller_labels()}
+        record = cook.record()
+        record["sources"] = {
+            key: {"entity_id": entity_id, "name": labels.get(entity_id, entity_id)} if entity_id else None
+            for key, entity_id in (
+                ("probe", slot.probe),
+                ("grill_probe", slot.grill_probe),
+                ("grill_controller", slot.controller),
+            )
+        }
+        started = datetime.fromtimestamp(cook.started_at)
+        slug = re.sub(r"[^a-z0-9]+", "_", cook.name.lower()).strip("_") or "cook"
+        filename: str | None = f"{started:%Y%m%d-%H%M}_{slug}.json"
+        folder = Path(self.hass.config.path(COOK_RECORD_DIR))
+        try:
+            await self.hass.async_add_executor_job(_write_record, folder / filename, record)
+        except OSError as err:
+            _LOGGER.warning("Cook record %s could not be written: %s", filename, err)
+            filename = None
+        self.history.insert(0, {**cook.summary(), "file": filename})
         del self.history[HISTORY_LIMIT:]
 
     async def _async_notify(self, message: str) -> None:

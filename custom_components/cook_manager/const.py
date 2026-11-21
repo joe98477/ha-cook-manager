@@ -39,9 +39,10 @@ EVENT_COOK = f"{DOMAIN}_event"
 
 STORAGE_VERSION = 1
 STORAGE_KEY = DOMAIN
-HISTORY_LIMIT = 50
+HISTORY_LIMIT = 500
 TICK_SECONDS = 15
 USER_RECIPE_DIR = "cook_manager/recipes"
+COOK_RECORD_DIR = "cook_manager/cooks"
 
 SERVICE_START = "start_cook"
 SERVICE_STOP = "stop_cook"

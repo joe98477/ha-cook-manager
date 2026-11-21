@@ -119,6 +119,9 @@
       },
       "grill_target": {
         "name": "Grill target"
+      },
+      "weight": {
+        "name": "Weight"
       }
     },
     "button": {
@@ -178,6 +181,10 @@
         "grill_target": {
           "name": "Grill target",
           "description": "Grill target in degrees Celsius."
+        },
+        "weight": {
+          "name": "Weight",
+          "description": "Weight of the meat in kilograms. Stored with the cook record."
         }
       }
     },
