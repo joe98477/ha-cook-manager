@@ -9,7 +9,7 @@ that is a temperature sensor), so probes from different brands can be mixed in o
 device it talks to itself: the Kamado Joe iKamand, whose cloud service has been shut down
 (see [iKamand](#ikamand)).
 
-**Status: early (0.2.0).** Tested against Home Assistant 2026.10.
+**Status: early (0.3.0).** Tested against Home Assistant 2026.10.
 
 ## What it does
 
@@ -71,6 +71,28 @@ For each slot (`Cook 1`, `Cook 2`, …):
 
 Shared: `binary_sensor.cook_manager_cooking` (any cook running),
 `sensor.cook_manager_active_cooks`, `sensor.cook_manager_probes_online`.
+
+## Dashboard cards
+
+Two cards come with the integration. There is nothing to install or register; after a restart
+they are in the card picker under "Cook Manager".
+
+```yaml
+type: custom:cook-manager-cook-card
+slot: 1
+```
+
+One cook slot. While idle it is the setup: name, recipe, doneness, probes, targets, grill
+controller, weight, Start. While a cook runs it shows the meat temperature on a dial that fills
+towards the pull temperature, the grill, the time left and when it will be ready, the rate, the
+curve since the start, the recipe stages, and Next stage and Stop.
+
+```yaml
+type: custom:cook-manager-ikamand-card
+```
+
+The iKamand: pit temperature dial, fan output, food probes, pit target, hold or turn off, and
+Fire it up. With more than one iKamand add `host: 192.168.1.50`.
 
 ## iKamand
 

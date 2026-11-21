@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,6 +13,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    CARDS_FILE,
+    CARDS_URL,
     DOMAIN,
     OPTION_MANUAL,
     PLATFORMS,
@@ -116,7 +120,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_STOP, stop_cook, schema=_SLOT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_NEXT_STAGE, next_stage, schema=_SLOT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_RELOAD_RECIPES, reload_recipes)
+    await _async_register_cards(hass)
     return True
+
+
+async def _async_register_cards(hass: HomeAssistant) -> None:
+    """Serve the dashboard cards and load them in every browser; nothing to install."""
+    path = Path(__file__).parent / "frontend" / CARDS_FILE
+    if "frontend" not in hass.config.components or getattr(hass, "http", None) is None:
+        return  # no web interface in this installation
+    from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
+    from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
+
+    if not await hass.async_add_executor_job(path.is_file):
+        return
+    stamp = int((await hass.async_add_executor_job(path.stat)).st_mtime)
+    await hass.http.async_register_static_paths([StaticPathConfig(CARDS_URL, str(path), False)])
+    add_extra_js_url(hass, f"{CARDS_URL}?v={stamp}")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CookManagerConfigEntry) -> bool:

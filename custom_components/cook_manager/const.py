@@ -51,6 +51,9 @@ TICK_SECONDS = 15
 USER_RECIPE_DIR = "cook_manager/recipes"
 COOK_RECORD_DIR = "cook_manager/cooks"
 
+CARDS_FILE = "cook-manager-cards.js"
+CARDS_URL = f"/{DOMAIN}/{CARDS_FILE}"
+
 SERVICE_START = "start_cook"
 SERVICE_STOP = "stop_cook"
 SERVICE_NEXT_STAGE = "next_stage"
