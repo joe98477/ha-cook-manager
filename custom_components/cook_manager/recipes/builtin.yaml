@@ -1,0 +1,210 @@
+# Built-in recipes. Temperatures in degrees Celsius.
+# safe_min follows the USDA FSIS safe minimum internal temperature chart:
+# whole cuts of beef, pork, lamb and veal 63 (plus a 3 minute rest), minced meat 71,
+# all poultry 74, fish 63. Doneness levels below safe_min are a matter of choice.
+# Add your own in <config>/cook_manager/recipes/*.yaml using the same format.
+
+- id: beef_steak
+  name: Beef steak
+  category: beef
+  grill_temp: 230
+  carryover: 3
+  rest_minutes: 5
+  safe_min: 63
+  doneness:
+    - {id: medium_rare, name: Medium rare, target: 57}
+    - {id: rare, name: Rare, target: 52}
+    - {id: medium, name: Medium, target: 63}
+    - {id: medium_well, name: Medium well, target: 68}
+    - {id: well_done, name: Well done, target: 72}
+
+- id: beef_steak_reverse_sear
+  name: Beef steak (reverse sear)
+  category: beef
+  carryover: 0
+  rest_minutes: 5
+  safe_min: 63
+  doneness:
+    - {id: medium_rare, name: Medium rare, target: 57}
+    - {id: rare, name: Rare, target: 52}
+    - {id: medium, name: Medium, target: 63}
+  stages:
+    - id: slow
+      name: Slow cook
+      grill_temp: 110
+      until: {meat_temp: 46}
+      notify: Take the steak off and open the grill up for the sear
+    - id: heat_up
+      name: Heat grill for sear
+      grill_temp: 260
+      until: {grill_temp: 245}
+      notify: Grill is hot, sear the steak
+    - id: sear
+      name: Sear
+      grill_temp: 260
+      until: {meat_temp: pull}
+    - id: rest
+      name: Rest
+      rest: true
+      until: {minutes: 5}
+
+- id: beef_roast
+  name: Beef roast
+  category: beef
+  grill_temp: 160
+  carryover: 4
+  rest_minutes: 20
+  safe_min: 63
+  doneness:
+    - {id: medium_rare, name: Medium rare, target: 57}
+    - {id: rare, name: Rare, target: 52}
+    - {id: medium, name: Medium, target: 63}
+    - {id: well_done, name: Well done, target: 72}
+
+- id: beef_brisket
+  name: Beef brisket (low and slow)
+  category: beef
+  safe_min: 63
+  doneness:
+    - {id: sliced, name: Sliced, target: 93}
+    - {id: pulled, name: Pulled, target: 96}
+  stages:
+    - id: smoke
+      name: Smoke
+      grill_temp: 120
+      until: {meat_temp: 70}
+      notify: Wrap the brisket
+    - id: wrapped
+      name: Wrapped
+      grill_temp: 135
+      until: {meat_temp: pull}
+    - id: rest
+      name: Rest
+      rest: true
+      until: {minutes: 60}
+
+- id: beef_short_ribs
+  name: Beef short ribs
+  category: beef
+  grill_temp: 125
+  rest_minutes: 30
+  safe_min: 63
+  target: 95
+
+- id: beef_burgers
+  name: Beef burgers
+  category: beef
+  grill_temp: 220
+  rest_minutes: 3
+  safe_min: 71
+  target: 71
+
+- id: pork_pulled
+  name: Pulled pork (shoulder)
+  category: pork
+  safe_min: 63
+  target: 95
+  stages:
+    - id: smoke
+      name: Smoke
+      grill_temp: 120
+      until: {meat_temp: 72}
+      notify: Wrap the pork
+    - id: wrapped
+      name: Wrapped
+      grill_temp: 135
+      until: {meat_temp: pull}
+    - id: rest
+      name: Rest
+      rest: true
+      until: {minutes: 45}
+
+- id: pork_loin
+  name: Pork loin or chops
+  category: pork
+  grill_temp: 180
+  carryover: 3
+  rest_minutes: 5
+  safe_min: 63
+  doneness:
+    - {id: medium, name: Medium, target: 63}
+    - {id: well_done, name: Well done, target: 71}
+
+- id: pork_ribs
+  name: Pork ribs
+  category: pork
+  grill_temp: 120
+  rest_minutes: 15
+  safe_min: 63
+  target: 93
+
+- id: pork_sausages
+  name: Sausages
+  category: pork
+  grill_temp: 180
+  safe_min: 71
+  target: 72
+
+- id: lamb_leg
+  name: Lamb leg roast
+  category: lamb
+  grill_temp: 160
+  carryover: 4
+  rest_minutes: 20
+  safe_min: 63
+  doneness:
+    - {id: medium, name: Medium, target: 63}
+    - {id: medium_rare, name: Medium rare, target: 57}
+    - {id: well_done, name: Well done, target: 72}
+
+- id: lamb_shoulder
+  name: Lamb shoulder (low and slow)
+  category: lamb
+  grill_temp: 130
+  rest_minutes: 30
+  safe_min: 63
+  target: 93
+
+- id: chicken_whole
+  name: Whole chicken
+  category: poultry
+  grill_temp: 180
+  rest_minutes: 15
+  safe_min: 74
+  target: 74
+  notes: Probe the thickest part of the breast, away from the bone.
+
+- id: chicken_breast
+  name: Chicken breast
+  category: poultry
+  grill_temp: 200
+  rest_minutes: 5
+  safe_min: 74
+  target: 74
+
+- id: chicken_thighs
+  name: Chicken thighs or wings
+  category: poultry
+  grill_temp: 190
+  rest_minutes: 5
+  safe_min: 74
+  target: 80
+
+- id: turkey_whole
+  name: Whole turkey
+  category: poultry
+  grill_temp: 165
+  rest_minutes: 30
+  safe_min: 74
+  target: 74
+  notes: Probe the thickest part of the breast, away from the bone.
+
+- id: salmon
+  name: Salmon
+  category: fish
+  grill_temp: 180
+  rest_minutes: 3
+  safe_min: 63
+  doneness:
+    - {id: medium, name: Medium, target: 52}
+    - {id: well_done, name: Cooked through, target: 63}

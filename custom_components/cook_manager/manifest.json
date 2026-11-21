@@ -1,0 +1,15 @@
+{
+  "domain": "cook_manager",
+  "name": "Cook Manager",
+  "codeowners": [
+    "@joe98477"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/joe98477/ha-cook-manager",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/joe98477/ha-cook-manager/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

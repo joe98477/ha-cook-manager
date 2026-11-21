@@ -1,0 +1,82 @@
+start_cook:
+  fields:
+    slot:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+    name:
+      example: Brisket
+      selector:
+        text:
+    probe:
+      example: sensor.bbq_thermometer_probe_1
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+            - domain: climate
+    grill_probe:
+      example: sensor.bbq_thermometer_probe_2
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+            - domain: climate
+    grill_controller:
+      selector:
+        entity:
+          domain: climate
+    recipe:
+      example: beef_brisket
+      selector:
+        text:
+    doneness:
+      example: medium_rare
+      selector:
+        text:
+    target:
+      example: 57
+      selector:
+        number:
+          min: 20
+          max: 120
+          step: 1
+          mode: box
+    grill_target:
+      example: 120
+      selector:
+        number:
+          min: 50
+          max: 400
+          step: 5
+          mode: box
+
+stop_cook:
+  fields:
+    slot:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+
+next_stage:
+  fields:
+    slot:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+
+reload_recipes:

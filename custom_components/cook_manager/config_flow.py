@@ -1,0 +1,115 @@
+"""Setup and options screens for Cook Manager."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import selector
+
+from .const import (
+    CONF_CONTROLLERS,
+    CONF_GRILL_TOLERANCE,
+    CONF_IGNORED,
+    CONF_NOTIFY,
+    CONF_PRE_ALERT,
+    CONF_PROBES,
+    CONF_SLOTS,
+    DEFAULT_GRILL_TOLERANCE,
+    DEFAULT_IGNORED,
+    DEFAULT_PRE_ALERT,
+    DEFAULT_SLOTS,
+    DOMAIN,
+)
+
+TITLE = "Cook Manager"
+
+
+def _schema(hass: HomeAssistant, current: dict[str, Any]) -> vol.Schema:
+    notify_services = sorted(
+        f"notify.{name}" for name in hass.services.async_services().get("notify", {}) if name != "send_message"
+    )
+    for chosen in current.get(CONF_NOTIFY, []):
+        if chosen not in notify_services:
+            notify_services.append(chosen)
+    return vol.Schema(
+        {
+            vol.Required(CONF_SLOTS, default=current.get(CONF_SLOTS, DEFAULT_SLOTS)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=8, step=1, mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_PROBES, default=current.get(CONF_PROBES, [])): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    multiple=True,
+                    filter=[
+                        {"domain": "sensor", "device_class": "temperature"},
+                        {"domain": "climate"},
+                    ],
+                )
+            ),
+            vol.Optional(CONF_CONTROLLERS, default=current.get(CONF_CONTROLLERS, [])): selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True, domain="climate")
+            ),
+            vol.Optional(CONF_NOTIFY, default=current.get(CONF_NOTIFY, [])): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=notify_services,
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(CONF_IGNORED, default=current.get(CONF_IGNORED, DEFAULT_IGNORED)): selector.TextSelector(),
+            vol.Required(
+                CONF_PRE_ALERT, default=current.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=20, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"
+                )
+            ),
+            vol.Required(
+                CONF_GRILL_TOLERANCE, default=current.get(CONF_GRILL_TOLERANCE, DEFAULT_GRILL_TOLERANCE)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=50, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"
+                )
+            ),
+        }
+    )
+
+
+def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
+    data = dict(user_input)
+    data[CONF_SLOTS] = int(data[CONF_SLOTS])
+    data.setdefault(CONF_PROBES, [])
+    data.setdefault(CONF_CONTROLLERS, [])
+    data.setdefault(CONF_NOTIFY, [])
+    data.setdefault(CONF_IGNORED, "")
+    return data
+
+
+class CookManagerConfigFlow(ConfigFlow, domain=DOMAIN):
+    """One Cook Manager per Home Assistant."""
+
+    VERSION = 1
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title=TITLE, data={}, options=_clean(user_input))
+        return self.async_show_form(step_id="user", data_schema=_schema(self.hass, {}))
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return CookManagerOptionsFlow()
+
+
+class CookManagerOptionsFlow(OptionsFlow):
+    """Change probes, grill controllers, notifications and alert settings."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=_clean(user_input))
+        current = {**self.config_entry.data, **self.config_entry.options}
+        return self.async_show_form(step_id="init", data_schema=_schema(self.hass, current))

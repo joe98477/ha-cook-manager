@@ -1,0 +1,209 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cook Manager",
+        "description": "Choose the probes to cook with. Everything here can be changed later.",
+        "data": {
+          "slots": "Cook slots",
+          "probes": "Probes",
+          "grill_controllers": "Grill controllers",
+          "notify_services": "Notify",
+          "ignored_readings": "Readings that mean no probe",
+          "pre_alert": "Approaching alert",
+          "grill_tolerance": "Grill band"
+        },
+        "data_description": {
+          "slots": "How many cooks can run at once.",
+          "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
+          "grill_controllers": "Optional. Climate entities that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
+          "notify_services": "Notify services that receive cook alerts, for example a phone.",
+          "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
+          "pre_alert": "Alert this many degrees before a meat target.",
+          "grill_tolerance": "Alert when the grill is this far above or below its target."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Cook Manager is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cook Manager",
+        "data": {
+          "slots": "Cook slots",
+          "probes": "Probes",
+          "grill_controllers": "Grill controllers",
+          "notify_services": "Notify",
+          "ignored_readings": "Readings that mean no probe",
+          "pre_alert": "Approaching alert",
+          "grill_tolerance": "Grill band"
+        },
+        "data_description": {
+          "slots": "How many cooks can run at once.",
+          "probes": "Temperature sensors to offer as meat or grill probes. A climate entity is read through its current temperature.",
+          "grill_controllers": "Optional. Climate entities that are handed the grill target (for example a fan controller). They keep doing their own regulation.",
+          "notify_services": "Notify services that receive cook alerts, for example a phone.",
+          "ignored_readings": "Comma-separated values a probe reports when nothing is plugged in, for example -1.",
+          "pre_alert": "Alert this many degrees before a meat target.",
+          "grill_tolerance": "Alert when the grill is this far above or below its target."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "state": {
+          "idle": "Idle",
+          "cooking": "Cooking",
+          "resting": "Resting",
+          "done": "Done"
+        }
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "grill_temperature": {
+        "name": "Grill temperature"
+      },
+      "time_remaining": {
+        "name": "Time remaining"
+      },
+      "finish_time": {
+        "name": "Finish time"
+      },
+      "progress": {
+        "name": "Progress"
+      },
+      "stage": {
+        "name": "Stage"
+      },
+      "active_cooks": {
+        "name": "Active cooks"
+      },
+      "probes_online": {
+        "name": "Probes online"
+      }
+    },
+    "binary_sensor": {
+      "cooking": {
+        "name": "Cooking"
+      },
+      "attention": {
+        "name": "Attention"
+      }
+    },
+    "select": {
+      "probe": {
+        "name": "Probe"
+      },
+      "grill_probe": {
+        "name": "Grill probe"
+      },
+      "grill_controller": {
+        "name": "Grill controller"
+      },
+      "recipe": {
+        "name": "Recipe"
+      },
+      "doneness": {
+        "name": "Doneness"
+      }
+    },
+    "number": {
+      "target": {
+        "name": "Target"
+      },
+      "grill_target": {
+        "name": "Grill target"
+      }
+    },
+    "button": {
+      "start": {
+        "name": "Start"
+      },
+      "stop": {
+        "name": "Stop"
+      },
+      "next_stage": {
+        "name": "Next stage"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Name"
+      }
+    }
+  },
+  "services": {
+    "start_cook": {
+      "name": "Start cook",
+      "description": "Start a cook in a slot. Fields left out keep what the slot already has.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Cook slot number."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Name of the cook, used in alerts."
+        },
+        "probe": {
+          "name": "Probe",
+          "description": "Meat probe entity."
+        },
+        "grill_probe": {
+          "name": "Grill probe",
+          "description": "Grill temperature entity."
+        },
+        "grill_controller": {
+          "name": "Grill controller",
+          "description": "Climate entity that is handed the grill target."
+        },
+        "recipe": {
+          "name": "Recipe",
+          "description": "Recipe id, or Manual."
+        },
+        "doneness": {
+          "name": "Doneness",
+          "description": "Doneness id or name from the recipe."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Meat target in degrees Celsius."
+        },
+        "grill_target": {
+          "name": "Grill target",
+          "description": "Grill target in degrees Celsius."
+        }
+      }
+    },
+    "stop_cook": {
+      "name": "Stop cook",
+      "description": "Stop the cook in a slot.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Cook slot number."
+        }
+      }
+    },
+    "next_stage": {
+      "name": "Next stage",
+      "description": "Move the cook in a slot to its next stage.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Cook slot number."
+        }
+      }
+    },
+    "reload_recipes": {
+      "name": "Reload recipes",
+      "description": "Read the recipe files again."
+    }
+  }
+}
