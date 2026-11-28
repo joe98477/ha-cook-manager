@@ -27,7 +27,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util.unit_conversion import TemperatureConverter
-from homeassistant.util import slugify
+from homeassistant.util import dt as dt_util, slugify
 from homeassistant.util.yaml import load_yaml
 
 from .const import (
@@ -47,11 +47,13 @@ from .const import (
     CONF_PRE_ALERT,
     CONF_PROBES,
     CONF_SLOTS,
+    CONF_STALE,
     DEFAULT_GRILL_TARGET,
     DEFAULT_GRILL_TOLERANCE,
     DEFAULT_IGNORED,
     DEFAULT_PRE_ALERT,
     DEFAULT_SLOTS,
+    DEFAULT_STALE,
     DEFAULT_TARGET,
     EVENT_COOK,
     HISTORY_LIMIT,
@@ -184,6 +186,9 @@ class CookManager:
         self.pre_alert = float(options.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT))
         self.grill_tolerance = float(options.get(CONF_GRILL_TOLERANCE, DEFAULT_GRILL_TOLERANCE))
         self._ignored = parse_ignored(options.get(CONF_IGNORED, DEFAULT_IGNORED))
+        # Some integrations keep showing a probe's last temperature after its link has dropped
+        # instead of going unavailable. A sensor that has not reported for this long has no reading.
+        self.stale_seconds = float(options.get(CONF_STALE, DEFAULT_STALE) or 0) * 60
 
         # iKamands that Cook Manager talks to itself. Their pit and food probes join the
         # probe pool and each one is a grill controller, under ids like "ikamand:<host>:pit".
@@ -380,6 +385,8 @@ class CookManager:
             raw: Any = state.attributes.get("current_temperature")
             unit = self.hass.config.units.temperature_unit
         else:
+            if self.stale_seconds and (dt_util.utcnow() - state.last_reported).total_seconds() > self.stale_seconds:
+                return None
             raw = state.state
             unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
         try:

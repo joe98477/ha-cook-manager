@@ -27,6 +27,7 @@ CONF_GRILL_TOLERANCE = "grill_tolerance"
 CONF_IKAMAND = "ikamand_hosts"
 CONF_ALERTS = "alerts"
 CONF_NOTIFY_URL = "notify_url"
+CONF_STALE = "stale_minutes"
 
 # Alert switches -> the cook events each one covers. Every event is still fired on the bus.
 ALERT_GROUPS: dict[str, tuple[str, ...]] = {
@@ -54,6 +55,8 @@ IKAMAND_POLL_SECONDS = 5
 DEFAULT_SLOTS = 4
 DEFAULT_IGNORED = "-1"
 DEFAULT_PRE_ALERT = 5.0
+# Minutes without a report before a sensor probe counts as having no reading. 0 = never.
+DEFAULT_STALE = 0
 DEFAULT_GRILL_TOLERANCE = 15.0
 DEFAULT_TARGET = 63.0
 DEFAULT_GRILL_TARGET = 120.0

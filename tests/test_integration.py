@@ -188,3 +188,30 @@ async def test_cook_survives_reload(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert hass.states.get("sensor.cook_2").state == "cooking"
     assert hass.states.get("number.cook_2_target").state == "70.0"
+
+
+async def test_silent_probe_has_no_reading(hass: HomeAssistant, freezer) -> None:
+    """A sensor that keeps its last value but stops reporting drops out once the limit is set."""
+    set_probes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Cook Manager", data={}, options={**OPTIONS, "stale_minutes": 3})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    assert manager.reading("sensor.probe_a") == 20
+
+    freezer.tick(200)
+    assert manager.reading("sensor.probe_a") is None
+    assert "sensor.probe_a" not in manager.online_probes()
+    # A climate entity is not judged by its report time.
+    assert manager.reading("climate.pit") == 25
+
+    # The same value reported again counts as a fresh reading.
+    hass.states.async_set("sensor.probe_a", "20", {**TEMP, "friendly_name": "Probe A"})
+    assert manager.reading("sensor.probe_a") == 20
+
+
+async def test_silent_probe_limit_off_by_default(hass: HomeAssistant, freezer) -> None:
+    entry = await setup(hass)
+    freezer.tick(3600)
+    assert entry.runtime_data.reading("sensor.probe_a") == 20

@@ -9,7 +9,7 @@ that is a temperature sensor), so probes from different brands can be mixed in o
 device it talks to itself: the Kamado Joe iKamand, whose cloud service has been shut down
 (see [iKamand](#ikamand)).
 
-**Status: early (0.4.0).** Tested against Home Assistant 2026.10.
+**Status: early (0.4.1).** Tested against Home Assistant 2026.10.
 
 ## What it does
 
@@ -51,6 +51,7 @@ and restart.
 | Alerts to send | Which alerts are sent as notifications. |
 | Page a notification opens | Dashboard path opened when a phone notification is tapped. |
 | Readings that mean no probe | Values a probe reports with nothing plugged in, for example `-1`. |
+| Probe silent for | Minutes without a report after which a sensor probe counts as having no reading. For thermometers that keep their last temperature after the link drops. 0 (the default) turns it off. |
 | Approaching alert | Degrees before a meat target at which to alert. |
 | Grill band | How far the grill may sit from its target before an alert. |
 

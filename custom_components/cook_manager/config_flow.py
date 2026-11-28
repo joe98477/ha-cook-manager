@@ -23,10 +23,12 @@ from .const import (
     CONF_PRE_ALERT,
     CONF_PROBES,
     CONF_SLOTS,
+    CONF_STALE,
     DEFAULT_GRILL_TOLERANCE,
     DEFAULT_IGNORED,
     DEFAULT_PRE_ALERT,
     DEFAULT_SLOTS,
+    DEFAULT_STALE,
     DOMAIN,
 )
 
@@ -76,6 +78,11 @@ def _schema(hass: HomeAssistant, current: dict[str, Any]) -> vol.Schema:
             ),
             vol.Optional(CONF_NOTIFY_URL, default=current.get(CONF_NOTIFY_URL, "")): selector.TextSelector(),
             vol.Optional(CONF_IGNORED, default=current.get(CONF_IGNORED, DEFAULT_IGNORED)): selector.TextSelector(),
+            vol.Optional(CONF_STALE, default=current.get(CONF_STALE, DEFAULT_STALE)): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=60, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min"
+                )
+            ),
             vol.Required(
                 CONF_PRE_ALERT, default=current.get(CONF_PRE_ALERT, DEFAULT_PRE_ALERT)
             ): selector.NumberSelector(
@@ -102,6 +109,7 @@ def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
     data.setdefault(CONF_NOTIFY, [])
     data.setdefault(CONF_IGNORED, "")
     data.setdefault(CONF_ALERTS, [])
+    data[CONF_STALE] = int(data.get(CONF_STALE) or 0)
     data[CONF_NOTIFY_URL] = (data.get(CONF_NOTIFY_URL) or "").strip()
     data[CONF_IKAMAND] = (data.get(CONF_IKAMAND) or "").strip()
     return data
