@@ -15,6 +15,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -43,6 +44,7 @@ from .const import (
     NOTIFY_STARTER,
     URGENT_EVENTS,
     CONF_IKAMAND,
+    CONF_LINKS,
     CONF_NOTIFY,
     CONF_PRE_ALERT,
     CONF_PROBES,
@@ -60,6 +62,8 @@ from .const import (
     IKAMAND_CHANNELS,
     IKAMAND_POLL_SECONDS,
     IKAMAND_PREFIX,
+    LINK_DOCKED_CLASSES,
+    LINK_GRACE_SECONDS,
     OPTION_MANUAL,
     OPTION_NONE,
     OPTION_STANDARD,
@@ -77,6 +81,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _TEMP_UNITS = (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.KELVIN)
 _MIN_HISTORY_SECONDS = 300
+_PROBE_NUMBER = re.compile(r"probe_?(\d+)")
 
 
 @dataclass
@@ -189,6 +194,10 @@ class CookManager:
         # Some integrations keep showing a probe's last temperature after its link has dropped
         # instead of going unavailable. A sensor that has not reported for this long has no reading.
         self.stale_seconds = float(options.get(CONF_STALE, DEFAULT_STALE) or 0) * 60
+        # Binary sensors that say whether a thermometer (or one of its probes) is really there:
+        # a "connected" sensor, or a "charging" sensor for a probe sitting in its dock.
+        self.link_entities: list[str] = list(options.get(CONF_LINKS, []))
+        self._links: dict[str, list[str]] = {}
 
         # iKamands that Cook Manager talks to itself. Their pit and food probes join the
         # probe pool and each one is a grill controller, under ids like "ikamand:<host>:pit".
@@ -221,7 +230,8 @@ class CookManager:
         for index in range(1, self.slot_count + 1):
             self.slots.append(self._restore_slot(index, by_index.get(index)))
 
-        watched = sorted(set(self.probe_entities) | set(self.controller_entities))
+        self._links = self._match_links()
+        watched = sorted(set(self.probe_entities) | set(self.controller_entities) | set(self.link_entities))
         if watched:
             self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_source_change))
         self._unsubs.append(
@@ -368,6 +378,46 @@ class CookManager:
             self._polling = False
         self._notify_entities()
 
+    def _match_links(self) -> dict[str, list[str]]:
+        """Probe entity -> the link sensors that speak for it.
+
+        A link sensor speaks for the probes on its own device. One with a probe number in its
+        entity id ("..._probe_2_connected") speaks only for the probes with the same number.
+        """
+        registry = er.async_get(self.hass)
+        links: dict[str, list[str]] = {}
+        for link in self.link_entities:
+            link_entry = registry.async_get(link)
+            if link_entry is None or link_entry.device_id is None:
+                continue
+            number = _PROBE_NUMBER.search(link)
+            for probe in self.probe_entities:
+                probe_entry = registry.async_get(probe)
+                if probe_entry is None or probe_entry.device_id != link_entry.device_id:
+                    continue
+                if number is not None:
+                    probe_number = _PROBE_NUMBER.search(probe)
+                    if probe_number is None or probe_number.group(1) != number.group(1):
+                        continue
+                links.setdefault(probe, []).append(link)
+        return links
+
+    def _link_down(self, entity_id: str) -> bool:
+        """True when a link sensor says this probe is docked or its thermometer is gone."""
+        for link in self._links.get(entity_id, ()):
+            state = self.hass.states.get(link)
+            if state is None:
+                continue
+            if state.attributes.get(ATTR_DEVICE_CLASS) in LINK_DOCKED_CLASSES:
+                if state.state == "on":
+                    return True
+            elif (
+                state.state != "on"
+                and (dt_util.utcnow() - state.last_changed).total_seconds() > LINK_GRACE_SECONDS
+            ):
+                return True
+        return False
+
     def reading(self, entity_id: str | None) -> float | None:
         """Current reading of a probe in Celsius, None when there is no usable reading."""
         if not entity_id:
@@ -386,6 +436,8 @@ class CookManager:
             unit = self.hass.config.units.temperature_unit
         else:
             if self.stale_seconds and (dt_util.utcnow() - state.last_reported).total_seconds() > self.stale_seconds:
+                return None
+            if self._link_down(entity_id):
                 return None
             raw = state.state
             unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)

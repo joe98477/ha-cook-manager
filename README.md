@@ -9,7 +9,7 @@ that is a temperature sensor), so probes from different brands can be mixed in o
 device it talks to itself: the Kamado Joe iKamand, whose cloud service has been shut down
 (see [iKamand](#ikamand)).
 
-**Status: early (0.4.1).** Tested against Home Assistant 2026.10.
+**Status: early (0.5.0).** Tested against Home Assistant 2026.10.
 
 ## What it does
 
@@ -51,9 +51,34 @@ and restart.
 | Alerts to send | Which alerts are sent as notifications. |
 | Page a notification opens | Dashboard path opened when a phone notification is tapped. |
 | Readings that mean no probe | Values a probe reports with nothing plugged in, for example `-1`. |
+| Probe link sensors | Binary sensors from a thermometer that say whether it, or one of its probes, is really there (see [Probes that are not really there](#probes-that-are-not-really-there)). |
 | Probe silent for | Minutes without a report after which a sensor probe counts as having no reading. For thermometers that keep their last temperature after the link drops. 0 (the default) turns it off. |
 | Approaching alert | Degrees before a meat target at which to alert. |
 | Grill band | How far the grill may sit from its target before an alert. |
+
+## Probes that are not really there
+
+A slot only offers probes that have a reading, and a running cook alerts when its probe goes
+quiet. That relies on the probe's sensor going unavailable when the thermometer is switched off.
+Some integrations do not do that: the sensor keeps its last temperature, and a wireless probe
+sitting in its charging dock reports room temperature. Two options deal with it.
+
+**Probe link sensors.** Pick the thermometer's own binary sensors:
+
+- A *connected* sensor (the base's Bluetooth link, or one per probe). Once it has been off for
+  more than 90 seconds, the probes on the same device have no reading. The 90 seconds is there
+  because some integrations connect in short sessions and the sensor goes off in between.
+- A *charging* sensor (device class battery charging or plug). While it is on, the probe is in
+  its dock and has no reading.
+
+A link sensor applies to every probe on its device. If its entity id carries a probe number
+(`..._probe_2_connected`), it applies only to probes with the same number.
+
+**Probe silent for.** A sensor probe that has not reported for this many minutes has no
+reading. Leave it at 0 for sensors that only report when the temperature changes.
+
+For an Inkbird INT-14 through the `inkbird_int14` integration: choose BLE Connected, and each
+probe's Connected and Charging sensors, and set Probe silent for to 3.
 
 ## Entities
 

@@ -215,3 +215,85 @@ async def test_silent_probe_limit_off_by_default(hass: HomeAssistant, freezer) -
     entry = await setup(hass)
     freezer.tick(3600)
     assert entry.runtime_data.reading("sensor.probe_a") == 20
+
+
+def _register(hass: HomeAssistant, device_id: str, domain: str, object_id: str) -> None:
+    from homeassistant.helpers import entity_registry as er
+
+    er.async_get(hass).async_get_or_create(
+        domain, "test", object_id, suggested_object_id=object_id, device_id=device_id
+    )
+
+
+async def test_link_sensors_hide_probes(hass: HomeAssistant, freezer) -> None:
+    """A base that is gone, and a probe in its dock, have no reading."""
+    from homeassistant.helpers import device_registry as dr
+
+    owner = MockConfigEntry(domain="test")
+    owner.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    base = devices.async_get_or_create(config_entry_id=owner.entry_id, identifiers={("test", "base")})
+    other = devices.async_get_or_create(config_entry_id=owner.entry_id, identifiers={("test", "other")})
+    for domain, object_id in (
+        ("sensor", "base_probe_1_internal"),
+        ("sensor", "base_probe_1_ambient"),
+        ("sensor", "base_probe_2_internal"),
+        ("binary_sensor", "base_connected"),
+        ("binary_sensor", "base_probe_1_charging"),
+        ("binary_sensor", "base_probe_2_connected"),
+    ):
+        _register(hass, base.id, domain, object_id)
+    _register(hass, other.id, "sensor", "other_probe_1")
+
+    probes = [
+        "sensor.base_probe_1_internal",
+        "sensor.base_probe_1_ambient",
+        "sensor.base_probe_2_internal",
+        "sensor.other_probe_1",
+    ]
+    for probe in probes:
+        hass.states.async_set(probe, "24", TEMP)
+    link = {"device_class": "connectivity"}
+    dock = {"device_class": "battery_charging"}
+    hass.states.async_set("binary_sensor.base_connected", "on", link)
+    hass.states.async_set("binary_sensor.base_probe_1_charging", "off", dock)
+    hass.states.async_set("binary_sensor.base_probe_2_connected", "on", link)
+
+    links = [
+        "binary_sensor.base_connected",
+        "binary_sensor.base_probe_1_charging",
+        "binary_sensor.base_probe_2_connected",
+    ]
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Cook Manager", data={}, options={**OPTIONS, "probes": probes, "link_sensors": links}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    assert manager.online_probes() == probes
+
+    # Probe 1 goes into its dock: both of its temperatures drop out, probe 2 stays.
+    hass.states.async_set("binary_sensor.base_probe_1_charging", "on", dock)
+    assert manager.online_probes() == ["sensor.base_probe_2_internal", "sensor.other_probe_1"]
+    hass.states.async_set("binary_sensor.base_probe_1_charging", "off", dock)
+
+    # Probe 2 loses its own link; nothing happens until the grace period has passed.
+    hass.states.async_set("binary_sensor.base_probe_2_connected", "off", link)
+    assert "sensor.base_probe_2_internal" in manager.online_probes()
+    freezer.tick(100)
+    assert manager.online_probes() == [
+        "sensor.base_probe_1_internal",
+        "sensor.base_probe_1_ambient",
+        "sensor.other_probe_1",
+    ]
+    hass.states.async_set("binary_sensor.base_probe_2_connected", "on", link)
+    assert manager.online_probes() == probes
+
+    # The base's link flaps between short sessions: off for 25 seconds is not "gone".
+    hass.states.async_set("binary_sensor.base_connected", "off", link)
+    freezer.tick(25)
+    assert manager.online_probes() == probes
+    # Off for good: every probe of that device goes, the other thermometer is untouched.
+    freezer.tick(100)
+    assert manager.online_probes() == ["sensor.other_probe_1"]
