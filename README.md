@@ -78,7 +78,8 @@ A link sensor applies to every probe on its device. If its entity id carries a p
 reading. Leave it at 0 for sensors that only report when the temperature changes.
 
 For an Inkbird INT-14 through the `inkbird_int14` integration: choose BLE Connected, and each
-probe's Connected and Charging sensors, and set Probe silent for to 3.
+probe's Connected and Charging sensors. Probe silent for does not help with this one: the
+integration reports all its sensors again whenever anything changes, link down or not.
 
 ## Entities
 
